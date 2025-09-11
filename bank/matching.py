@@ -113,10 +113,10 @@ class BankJournalMatcher:
                     if (j_debit == b_kredit and j_kredit == 0 and b_debet == 0) or \
                     (j_kredit == b_debet and j_debit == 0 and b_kredit == 0):
                         found = {
-                            "Tanggal (BB)"       : j_tgl,
-                            "Debit (BB)"         : j_debit,
-                            "Kredit (BB)"        : j_kredit,
-                            "Saldo (BB)"         : 0.0,
+                            "Tanggal (BB)" : j_tgl,
+                            "Debit (BB)"   : j_debit,
+                            "Kredit (BB)"  : j_kredit,
+                            "Saldo (BB)"   : 0.0,
                             "Tanggal (RK)" : b_tgl,
                             "Debit (RK)"   : b_debet,
                             "Kredit (RK)"  : b_kredit,
@@ -132,17 +132,17 @@ class BankJournalMatcher:
                 results.append(found)
             else:
                 results.append({
-                    "Tanggal (BB)"       : j_tgl,
-                    "Debit (BB)"         : j_debit,
-                    "Kredit (BB)"        : j_kredit,
-                    "Saldo (BB)"         : 0.0,
+                    "Tanggal (BB)" : j_tgl,
+                    "Debit (BB)"   : j_debit,
+                    "Kredit (BB)"  : j_kredit,
+                    "Saldo (BB)"   : 0.0,
                     "Tanggal (RK)" : "-",
                     "Debit (RK)"   : 0.0,
                     "Kredit (RK)"  : 0.0,
                     "Saldo (RK)"   : 0.0,
                     "Debit (BB) - Kredit (RK)" : round(j_debit, rounding),
                     "Kredit (BB) - Debit (RK)" : round(j_kredit, rounding),
-                    "Status"             : "Unmatched"
+                    "Status"       : "Unmatched"
                 })
 
         for b_idx, b_row in bank_n1.iterrows():
@@ -158,8 +158,8 @@ class BankJournalMatcher:
                     "Debit (RK)"  : b_debet,
                     "Kredit (RK)" : b_kredit,
                     "Saldo (RK)"  : 0.0,
-                    "Debit (BB) - Kredit (RK)" : round(-b_kredit, rounding),
-                    "Kredit (BB) - Debit (RK)" : round(-b_debet, rounding),
+                    "Debit (BB) - Kredit (RK)" : round(0-b_kredit, rounding),
+                    "Kredit (BB) - Debit (RK)" : round(0-b_debet, rounding),
                     "Status"            : "Unmatched"
                 })
                 

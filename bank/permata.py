@@ -196,7 +196,7 @@ class PermataExtractor:
     # -------------------------------------------------
     # Klastering berdasarkan min koordinat y Header
     # ------------------------------------------------
-    def build_table(self, hasil_klaster, eps=15, min_samples=1, header_order=None):
+    def build_table(self, hasil_klaster, eps=20, min_samples=1, header_order=None):
         y_coords = np.array([[c["y_min"]] for c in hasil_klaster])
         db = DBSCAN(eps=eps, min_samples=min_samples).fit(y_coords)
         labels = db.labels_
@@ -258,16 +258,15 @@ class PermataExtractor:
     def extracting_table(self, df_table, hasil_ocr, header_y_min=0, page=0):
         YEAR_RE = re.compile(r"\b(19\d{2}|20\d{2})\b")
         detected_year = None
-        for _, row in df_table.iterrows():
-            for val in row:
+        if not df_table.empty:
+            first_col = df_table.columns[0]
+            for val in df_table[first_col]:
                 if pd.isna(val):
                     continue
                 m = YEAR_RE.search(str(val))
                 if m:
                     detected_year = int(m.group())
                     break
-            if detected_year:
-                break
 
         if not detected_year and hasil_ocr is not None:
             candidates = []
@@ -340,7 +339,22 @@ class PermataExtractor:
             return float(s)
         except ValueError:
             return 0.0
-    
+        
+    # ------------------------
+    # Parsing Mutation
+    # ------------------------
+    def parse_mutasi(self, cell: str)-> Tuple[Optional[str], Optional[float]]:
+        if pd.isna(cell):
+            return (0.0, "")
+        s = str(cell).strip()
+        if s == "":
+            return (0.0, "")
+        m      = re.search(r"([A-Za-z]{1,3})\s*$", s)
+        code   = m.group(1).upper() if m else ""
+        amount = s[:m.start()].strip() if m else s
+        
+        amount = self.to_number(amount)
+        return (amount, code)
     # ------------------------
     # Find Debit & Kredit
     # ------------------------
@@ -351,9 +365,6 @@ class PermataExtractor:
         self.target_kode = self.target_kode.lower()
         if kolom_keterangan:
             kolom_keterangan = kolom_keterangan.lower()
-
-        if self.target_kode in df.columns:
-            df[self.target_kode] = df[self.target_kode].apply(self.to_number)
 
         if "balance" in df.columns:
             df["saldo"] = df["balance"].apply(self.to_number)
@@ -379,9 +390,18 @@ class PermataExtractor:
                 raise ValueError(
                     "Kolom debit/kredit belum ada. Harap berikan kolom_kode dan target_kode untuk diproses."
                 )
+            elif self.kolom_kode == self.target_kode and self.kolom_kode in df.columns:
+                parsed = df[self.kolom_kode].apply(lambda x: pd.Series(self.parse_mutasi(x)))
+                parsed.columns = ["amount_parsed", "code_parsed"]
+                df = pd.concat([df, parsed], axis=1)
+                self.kolom_kode = "code_parsed"
+                self.target_kode = "amount_parsed"
 
             df["debit"] = 0.0
             df["kredit"] = 0.0
+            if self.target_kode in df.columns: 
+                df[self.target_kode] = df[self.target_kode].apply(self.to_number)
+                
             for i, row in df.iterrows():
                 kode = str(row.get(self.kolom_kode, "")).strip().upper()
                 amount = row.get(self.target_kode, 0.0)

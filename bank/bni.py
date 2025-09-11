@@ -361,6 +361,43 @@ class BNIExtractor:
         except ValueError:
             return 0.0
     
+    def to_number(self, x):
+        if pd.isna(x) or str(x).strip() == "":
+            return 0.0
+
+        s = str(x).strip()
+        s = re.sub(r"[^\d\-,.]", "", s)
+        last_dot = s.rfind(".")
+        last_comma = s.rfind(",")
+
+        if last_comma > last_dot:
+            s = s.replace(".", "").replace(",", ".")
+        elif last_dot > last_comma:
+            s = s.replace(",", "")
+        else:
+            s = s.replace(",", ".")
+
+        try:
+            return float(s)
+        except ValueError:
+            return 0.0
+        
+    # ------------------------
+    # Parsing Mutation
+    # ------------------------
+    def parse_mutasi(self, cell: str)-> Tuple[Optional[str], Optional[float]]:
+        if pd.isna(cell):
+            return (0.0, "")
+        s = str(cell).strip()
+        if s == "":
+            return (0.0, "")
+        m      = re.search(r"([A-Za-z]{1,3})\s*$", s)
+        code   = m.group(1).upper() if m else ""
+        amount = s[:m.start()].strip() if m else s
+        
+        amount = self.to_number(amount)
+        return (amount, code)
+    
     # ------------------------
     # Find Debit & Kredit
     # ------------------------
@@ -371,9 +408,6 @@ class BNIExtractor:
         self.target_kode = self.target_kode.lower()
         if kolom_keterangan:
             kolom_keterangan = kolom_keterangan.lower()
-
-        if self.target_kode in df.columns:
-            df[self.target_kode] = df[self.target_kode].apply(self.to_number)
 
         if "balance" in df.columns:
             df["saldo"] = df["balance"].apply(self.to_number)
@@ -399,9 +433,18 @@ class BNIExtractor:
                 raise ValueError(
                     "Kolom debit/kredit belum ada. Harap berikan kolom_kode dan target_kode untuk diproses."
                 )
+            elif self.kolom_kode == self.target_kode and self.kolom_kode in df.columns:
+                parsed = df[self.kolom_kode].apply(lambda x: pd.Series(self.parse_mutasi(x)))
+                parsed.columns = ["amount_parsed", "code_parsed"]
+                df = pd.concat([df, parsed], axis=1)
+                self.kolom_kode = "code_parsed"
+                self.target_kode = "amount_parsed"
 
             df["debit"] = 0.0
             df["kredit"] = 0.0
+            if self.target_kode in df.columns: 
+                df[self.target_kode] = df[self.target_kode].apply(self.to_number)
+                
             for i, row in df.iterrows():
                 kode = str(row.get(self.kolom_kode, "")).strip().upper()
                 amount = row.get(self.target_kode, 0.0)
