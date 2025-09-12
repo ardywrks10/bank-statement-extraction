@@ -1,0 +1,9 @@
+fastapi
+uvicorn[standard]
+pandas
+numpy
+opencv-python-headless
+easyocr
+scikit-learn
+pdf2image
+python-multipart
