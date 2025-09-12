@@ -9,6 +9,8 @@ import shutil
 import os
 import pandas as pd
 import easyocr
+import torch
+torch.set_num_threads(1)
 
 # ---------------------------------------
 # ---- Importing Extractor & Matcher ----
@@ -30,13 +32,16 @@ app.add_middleware(
     allow_headers     = ["*"],
 )
 
-EASYOCR_READER = easyocr.Reader(['id', 'en'])
-EXTRACTORS = {
-    "bca"     : BCAExtractor(EASYOCR_READER),
-    "bni"     : BNIExtractor(EASYOCR_READER),
-    "permata" : PermataExtractor(EASYOCR_READER),
-    "mandiri" : MandiriExtractor(EASYOCR_READER),
-}
+@app.on_event("startup")
+def load_reader():
+    global EASYOCR_READER, EXTRACTORS
+    EASYOCR_READER = easyocr.Reader(['id', 'en'])
+    EXTRACTORS = {
+        "bca": BCAExtractor(EASYOCR_READER),
+        "bni": BNIExtractor(EASYOCR_READER),
+        "permata": PermataExtractor(EASYOCR_READER),
+        "mandiri": MandiriExtractor(EASYOCR_READER),
+    }
 
 def get_extractor(bank_name: str):
     bank = bank_name.lower()
