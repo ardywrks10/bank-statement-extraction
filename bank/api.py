@@ -18,6 +18,12 @@ BANKS_DIR = pathlib.Path("banks")
 BANKS_DIR.mkdir(parents=True, exist_ok=True)
 NAME_RE = re.compile(r"^[A-Za-z0-9_\-]+$")
 DYNAMIC_EXTRACTORS: Dict[str, object] = {}
+STATIC_EXTRACTORS = {
+    "bca": BCAExtractor,
+    "bni": BNIExtractor,
+    "permata": PermataExtractor,
+    "mandiri": MandiriExtractor,
+}
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
@@ -147,7 +153,7 @@ def register_extractor_from_config(cfg: dict):
         raise RuntimeError("EASYOCR_READER belum diinisialisasi")
     name = cfg.get("name")
     if not name:
-        raise ValueError("Config must contain 'name'")
+        raise ValueError("Konfigurasi harus mengandung 'name'")
     key      = name.lower()
     base_cls = DefaultBaseExtractor
     cls_name = f"{name}Extractor"
@@ -163,13 +169,6 @@ def load_all_configs_on_startup():
             register_extractor_from_config(cfg)
         except Exception as e:
             print(f"Warning: gagal load config {cfg_file}: {e}")
-
-STATIC_EXTRACTORS = {
-    "bca": BCAExtractor,
-    "bni": BNIExtractor,
-    "permata": PermataExtractor,
-    "mandiri": MandiriExtractor,
-}
 
 def current_extractors() -> Dict[str, object]:
     static = {k: cls(EASYOCR_READER) for k, cls in STATIC_EXTRACTORS.items()}
