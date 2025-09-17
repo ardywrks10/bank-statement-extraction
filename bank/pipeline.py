@@ -221,7 +221,6 @@ class Pipeline:
         df = pd.DataFrame(table)
         if header_order is not None:
             df = df.reindex(columns=header_order)
-
         return df.reset_index(drop=True)
     
     # ----------------------------
