@@ -501,28 +501,22 @@ class PermataExtractor:
     # --------------------------------------------
     def drop_incomplete(self, df: pd.DataFrame) -> pd.DataFrame:
         df_copy = df.copy()
-        main_cols = ["tanggal", "keterangan", "debit", "kredit", "saldo"]
-        to_drop = []
+        numeric_cols = ["debit", "kredit", "saldo"]
+        main_cols = df_copy.columns.tolist()
 
-        for idx, row in df_copy.iterrows():
-            values = []
-            for col in main_cols:
-                val = row.get(col, "")
-                if pd.isna(val):
-                    val = ""
-                try:
-                    num = float(str(val).replace(",", "").strip())
-                    if num == 0:
-                        val = ""
-                except Exception:
-                    pass
-                values.append(str(val).strip())
+        for c in numeric_cols:
+            if c in df_copy.columns:
+                df_copy[c] = (pd.to_numeric(df_copy[c].astype(str).str.replace(",", ""), errors="coerce",).fillna(0)
+                )
+        mask_non_empty = df_copy[main_cols].apply(lambda x: x.notna() & (x.astype(str).str.strip() != ""))
+        for c in numeric_cols:
+            if c in df_copy.columns:
+                mask_non_empty[c] = df_copy[c].notna() & (df_copy[c] != 0)
 
-            non_empty = [v for v in values if v not in ("", "nan", "None")]
-
-            if len(non_empty) <= 1:
-                to_drop.append(idx)
-        df_cleaned = df_copy.drop(index=to_drop).reset_index(drop=True)
+        count_non_empty = mask_non_empty.sum(axis=1)
+        cond_incomplete = count_non_empty <= 1
+        cond_all_zero = (df_copy[numeric_cols] == 0).all(axis=1)
+        df_cleaned = df_copy[~(cond_incomplete | cond_all_zero)].reset_index(drop=True)
         return df_cleaned
 
     # ---------------------------------

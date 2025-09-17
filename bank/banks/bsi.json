@@ -1,0 +1,19 @@
+{
+  "name": "bsi",
+  "HEADERS": [
+    "Posting Date",
+    "Branch",
+    "Journal",
+    "Transaction Description",
+    "Amount",
+    "DB/CR",
+    "Balance"
+  ],
+  "keterangan": "Transaction Description",
+  "kolom_kode": "DB/CR",
+  "target_kode": "Amount",
+  "debit_code": "D",
+  "kredit_code": "K",
+  "header_per_page": true,
+  "DATE_FORMAT": "dd/MM/yyyy"
+}

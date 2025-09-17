@@ -12,7 +12,7 @@ from pdf2image import convert_from_path
 from difflib import SequenceMatcher  
 from typing import Tuple, Union, List, Optional
 
-class BCAExtractor: 
+class Pipeline: 
     def __init__(self, reader):
         self._TIME_SEP    = r"[:\.\uFF1A]"
         self.TIME_RE      = re.compile(
@@ -21,8 +21,8 @@ class BCAExtractor:
         self.DATE_FORMAT = "dd/MM"
         self.reader      = reader
         self.DATE_RE     = re.compile(self.to_regex(self.DATE_FORMAT))
-        self.HEADERS     = ["TANGGAL", "KETERANGAN", "CBG", "MUTASI", "SALDO"]
-        self.keterangan  = "KETERANGAN"
+        self.HEADERS     = ["Tgl Trx.", "Uraian Trx.", "Debet", "Kredit", "Saldo"]
+        self.keterangan  = "Uraian Trx."
         self.kolom_kode  = "DB/CR"
         self.target_kode = "Amount"
         self.debit_code  = "D"
@@ -40,21 +40,7 @@ class BCAExtractor:
                 gray = cv.cvtColor(image, cv.COLOR_BGR2GRAY)
         else:
             gray = image
-
-        clahe = cv.createCLAHE(clipLimit=3.0, tileGridSize=(8,8))
-        gray = clahe.apply(gray)
-
-        thresh = cv.adaptiveThreshold(gray, 255, cv.ADAPTIVE_THRESH_MEAN_C,
-            cv.THRESH_BINARY, 21,  
-            9    
-        )
-
-        kernel = cv.getStructuringElement(cv.MORPH_RECT, (1,1))
-        dilated = cv.dilate(thresh, kernel, iterations=1)
-        denoised = cv.fastNlMeansDenoising(dilated, h=15)
-        kernel_sharp = np.array([[0,-1,0], [-1,5,-1], [0,-1,0]])
-        sharp = cv.filter2D(denoised, -1, kernel_sharp)
-        return sharp
+        return gray
 
     # ------------------------
     # Utility: fuzzy match
@@ -72,7 +58,6 @@ class BCAExtractor:
             height, width, _ = img.shape
         else:
             height, width = img.shape
-            
         results = self.reader.readtext(img, detail=1, paragraph=False)
         lines = []
         for (bbox, word, conf) in results:
@@ -272,8 +257,8 @@ class BCAExtractor:
     # ------------------------
     def extracting_table(self, df_table, hasil_ocr, header_y_min=0, page=0):
         YEAR_RE = re.compile(r"\b(19\d{2}|20\d{2})\b")
-
         detected_year = None
+
         if not df_table.empty:
             first_col = df_table.columns[0]
             for val in df_table[first_col]:
@@ -332,120 +317,122 @@ class BCAExtractor:
         print(f"✅ Berhasil mengekstrak {len(df_out)} baris transaksi pada halaman ke - {page}.")
         return df_out
 
-
     # ------------------------
     # Formating to Float (Decimal) Format
     # ------------------------
-    def clean_number(self, val: str) -> str:
-        if not isinstance(val, str):
-            return val
-        val = val.replace("/", "7")
-        return val
-    
-    def to_number_sal(self, x):
+    def to_number(self, x):
         if pd.isna(x) or str(x).strip() == "":
             return 0.0
 
         s = str(x).strip()
-        s = s.replace("~", "-").replace("–", "-").replace("−", "-")
-        s = s.replace(" ", "")
-        s = s.replace(",", "")
+        s = re.sub(r"[^\d\-,.]", "", s)
+        last_dot = s.rfind(".")
+        last_comma = s.rfind(",")
 
-        import re
-        match = re.search(r"-?\d+(\.\d+)?", s)
-        if match:
-            try:
-                return float(match.group(0))
-            except ValueError:
-                pass
-
-        print("Gagal konversi:", repr(x))
-        return 0.0
-
-
-    def normalize_table(self, df: pd.DataFrame) -> pd.DataFrame:
-        num_cols = ["MUTASI", "SALDO"]
-        for col in num_cols:
-            if col in df.columns:
-                df[col] = df[col].astype(str).apply(self.clean_number)
-        return df
-    
-    def enforce_thousands_groups(self, s: str, group_len: int = 3) -> str:
-        s = re.sub(r"[^0-9.,]", "", str(s))  
-        if "," in s:
-            main, dec = s.split(",", 1)
+        if last_comma > last_dot:
+            s = s.replace(".", "").replace(",", ".")
+        elif last_dot > last_comma:
+            s = s.replace(",", "")
         else:
-            main, dec = s, None
-        parts = main.split(".")
+            s = s.replace(",", ".")
 
-        fixed_parts = []
-        for i, p in enumerate(parts):
-            if p == "":
-                continue
-            if i == 0:
-                fixed_parts.append(p)
-            else:
-                while len(p) > group_len:
-                    p = p[:-1]
-                fixed_parts.append(p)
-
-        fixed_main = ".".join(fixed_parts)
-        return f"{fixed_main},{dec}" if dec is not None else fixed_main
-
-    def to_number(self, x: str) -> Tuple[float, str]:
-        if pd.isna(x) or x == "":
-            return 0.0, ""
+        try:
+            return float(s)
+        except ValueError:
+            return 0.0
         
-        is_debit = "DB" in x.upper()
-        x = x.replace("DB", "").replace("CR", "").strip()
-        x = self.enforce_thousands_groups(x, group_len=3)
-        x = x.replace(",", "").replace(".", ".")
-        return float(x), ("Debit" if is_debit else "Kredit")
-    
+    # ------------------------
+    # Parsing Mutation
+    # ------------------------
+    def parse_mutasi(self, cell: str)-> Tuple[Optional[str], Optional[float]]:
+        if pd.isna(cell):
+            return (0.0, "")
+        s = str(cell).strip()
+        if s == "":
+            return (0.0, "")
+        m      = re.search(r"([A-Za-z]{1,3})\s*$", s)
+        code   = m.group(1).upper() if m else ""
+        amount = s[:m.start()].strip() if m else s
+        
+        amount = self.to_number(amount)
+        return (amount, code)
     # ------------------------
     # Find Debit & Kredit
     # ------------------------
-    def debit_and_kredit(self, df: pd.DataFrame) -> pd.DataFrame:
-        df["Debit"]  = 0.0
-        df["Kredit"] = 0.0
+    def debit_and_kredit(self, df: pd.DataFrame, kolom_keterangan: str = None) -> pd.DataFrame:
+        df = df.copy()
+        df.columns = [c.lower() for c in df.columns]
+        self.kolom_kode = self.kolom_kode.lower()
+        self.target_kode = self.target_kode.lower()
+        if kolom_keterangan:
+            kolom_keterangan = kolom_keterangan.lower()
 
-        for i in range(len(df)):
-            mutasi_raw = str(df.loc[i, "MUTASI"])
-            if pd.isna(mutasi_raw) or mutasi_raw.strip() == "":
-                continue
+        if "balance" in df.columns:
+            df["saldo"] = df["balance"].apply(self.to_number)
+            df = df.drop(columns=["balance"])
+        elif "saldo" in df.columns:
+            df["saldo"] = df["saldo"].apply(self.to_number)
 
-            angka, tipe = self.to_number(mutasi_raw) 
-            if tipe == "Debit":
-                df.loc[i, "Debit"] = angka
-            elif tipe == "Kredit":
-                df.loc[i, "Kredit"] = angka
-        df_final = df.drop(columns=["MUTASI", "CBG"], errors="ignore")
+        debit_aliases  = ["debit", "debet"]
+        kredit_aliases = ["kredit", "credit"]
 
-        cols = list(df_final.columns)
-        cols.remove("Debit")
-        cols.remove("Kredit")
-        saldo_idx = cols.index("SALDO")
-        cols      = cols[:saldo_idx] + ["Debit", "Kredit"] + cols[saldo_idx:]
-        df_final  = df_final[cols]
-        return df_final
+        self.debit_col  = next((c for c in df.columns if c in debit_aliases), None)
+        self.kredit_col = next((c for c in df.columns if c in kredit_aliases), None)
 
-    # ---------------------------------
-    # Add Saldo Awal (Opening Balance)
-    # ---------------------------------
-    def add_saldo_awal(self, df: pd.DataFrame) -> pd.DataFrame:
-        df_copy = df.copy()
-        for i in range (len(df_copy)):
-            df_copy.loc[i, "SALDO"] = self.to_number_sal(df_copy.loc[i, "SALDO"])
-            
-        if not df_copy.empty:
-            first_row = df_copy.iloc[0]
-            df_copy = df_copy.drop(index=0).reset_index(drop=True)
+        if self.debit_col and self.kredit_col:
+            df["debit"]  = df[self.debit_col].apply(self.to_number)
+            df["kredit"] = df[self.kredit_col].apply(self.to_number)
+
+            for c in [self.debit_col, self.kredit_col]:
+                if c not in ["debit", "kredit"]:
+                    df = df.drop(columns=[c])
         else:
-            raise ValueError("DataFrame kosong, tidak bisa menambahkan saldo awal.")
+            if self.kolom_kode not in df.columns or self.target_kode not in df.columns:
+                raise ValueError(
+                    "Kolom debit/kredit belum ada. Harap berikan kolom_kode dan target_kode untuk diproses."
+                )
+            elif self.kolom_kode == self.target_kode and self.kolom_kode in df.columns:
+                parsed = df[self.kolom_kode].apply(lambda x: pd.Series(self.parse_mutasi(x)))
+                parsed.columns = ["amount_parsed", "code_parsed"]
+                df = pd.concat([df, parsed], axis=1)
+                self.kolom_kode = "code_parsed"
+                self.target_kode = "amount_parsed"
 
-        debit  = float(first_row.get("Debit", 0) or 0)
-        kredit = float(first_row.get("Kredit", 0) or 0)
-        saldo  = float(first_row.get("SALDO", 0) or 0)
+            df["debit"] = 0.0
+            df["kredit"] = 0.0
+            if self.target_kode in df.columns: 
+                df[self.target_kode] = df[self.target_kode].apply(self.to_number)
+                
+            for i, row in df.iterrows():
+                kode = str(row.get(self.kolom_kode, "")).strip().upper()
+                amount = row.get(self.target_kode, 0.0)
+                if kode == self.debit_code.upper():
+                    df.at[i, "debit"] = amount
+                elif kode == self.kredit_code.upper():
+                    df.at[i, "kredit"] = amount
+
+            df = df.drop(columns=[self.kolom_kode, self.target_kode], errors="ignore")
+
+        if kolom_keterangan and kolom_keterangan in df.columns:
+            df = df.rename(columns={kolom_keterangan: "keterangan"})
+        cols = [c for c in df.columns if c not in ["debit", "kredit", "saldo"]]
+        if "saldo" in df.columns:
+            df = df[cols + ["debit", "kredit", "saldo"]]
+        else:
+            df = df[cols + ["debit", "kredit"]]
+        return df
+    
+    # --------------------------------
+    # Add Saldo Awal (Opening Balance)
+    # --------------------------------
+    def add_saldo_awal(self, df: pd.DataFrame) -> pd.DataFrame:
+        df_copy    = df.copy()
+        saldo_awal = 0.0
+        first_row  = df_copy.loc[0]
+
+        debit  = first_row.get("debit", 0)
+        kredit = first_row.get("kredit", 0)
+        saldo  = first_row.get("saldo", 0)
 
         if debit != 0:
             saldo_awal = saldo + debit
@@ -455,45 +442,45 @@ class BCAExtractor:
             saldo_awal = saldo
 
         saldo_awal_row = {
-            col: 0.0 if col in ["Debit", "Kredit", "SALDO"] else "" 
+            col: 0.0 if col in ["debit", "kredit", "saldo"] else "" 
             for col in df.columns
         }
-        saldo_awal_row["KETERANGAN"] = "SALDO AWAL"
-        saldo_awal_row["SALDO"] = saldo_awal
-
+        
+        saldo_awal_row["keterangan"] = "SALDO AWAL"
+        saldo_awal_row["saldo"] = saldo_awal
         df_copy = pd.concat(
             [pd.DataFrame([saldo_awal_row]), df_copy], ignore_index=True
         )
-
         return df_copy
-    
+
     # ---------------------------------
     # Add Saldo Akhir (Closing Balance)
     # ---------------------------------
-    def add_saldo_akhir(self, df):
+    def add_saldo_akhir(self, df: pd.DataFrame) -> pd.DataFrame:
         df_copy = df.copy()
-        saldo_awal = df_copy.loc[0, "SALDO"]
 
+        saldo_awal = df_copy.loc[0, "saldo"]
         debit_temp, kredit_temp = 0.0, 0.0
         for i in range(1, len(df_copy)):
-            debit_temp  += df_copy.loc[i, "Debit"]
-            kredit_temp += df_copy.loc[i, "Kredit"]
+            debit_temp  += df_copy.loc[i, "debit"]
+            kredit_temp += df_copy.loc[i, "kredit"]
 
         saldo_akhir_ = saldo_awal - debit_temp + kredit_temp
-        saldo_akhir = {
-            "TANGGAL": "",
-            "KETERANGAN": "SALDO AKHIR",
-            "SALDO": saldo_akhir_
+        saldo_akhir_row = {
+            col: 0.0 if col in ["debit", "kredit", "saldo"] else "" 
+            for col in df.columns
         }
-        df_copy = pd.concat([df_copy, pd.DataFrame([saldo_akhir])], ignore_index=True)
+
+        saldo_akhir_row["keterangan"] = "SALDO AKHIR"
+        saldo_akhir_row["saldo"] = saldo_akhir_
+        df_copy = pd.concat([df_copy, pd.DataFrame([saldo_akhir_row])], ignore_index=True)
         return df_copy
 
     # ---------------------------------
     # Hapus Duplikasi Baris (Jika Ada)
     # ---------------------------------
     def drop_next_duplicates(self, df: pd.DataFrame) -> pd.DataFrame:
-        df_copy = df.copy()     
-        df_copy.columns = [str(c).strip().lower() for c in df_copy.columns]   
+        df_copy = df.copy()        
         main_cols = ["keterangan", "debit", "kredit", "saldo"]
         mask = df_copy[main_cols].shift().eq(df_copy[main_cols]).all(axis=1)
         df_cleaned = df_copy[~mask].reset_index(drop=True)
@@ -537,21 +524,15 @@ class BCAExtractor:
     # Converting Many Functions
     # ---------------------------------
     def convert(self, pdf_path: str, pages: Union[str, List[int]] = "all", output_excel=None):
-        images = convert_from_path(pdf_path, dpi=210)
+        images = convert_from_path(pdf_path, dpi=200)
         if pages != "all":
             images = [images[i-1] for i in pages if 0 < i <= len(images)]
-            
         all_pages_df = []
         header_cache = None
-        scale_percent = 100
+        kmeans_cache = None
         for page_idx, image in enumerate(images):
             img_array = np.array(image)
             img_array = self.noise_removal(img_array)
-
-            h, w = img_array.shape[:2]
-            new_w = int(w * scale_percent / 100)
-            new_h = int(h * scale_percent / 100)
-            img_array = cv.resize(img_array, (new_w, new_h), interpolation=cv.INTER_AREA)
             
             if self.header_per_page or header_cache is None:
                 kolom_coords, hasil_ocr = self.find_header_pdf(img_array)
@@ -568,18 +549,17 @@ class BCAExtractor:
                 if k_means is not None:
                     kmeans_cache = k_means
             else:
-                hasil_klaster, _ = self.cluster_table(hasil_ocr, kolom_coords, init_kmeans=kmeans_cache)            
-            df_table         = self.build_table(hasil_klaster, header_order=self.HEADERS)
+                hasil_klaster, _ = self.cluster_table(hasil_ocr, kolom_coords, init_kmeans=kmeans_cache)
+            df_table = self.build_table(hasil_klaster, header_order=self.HEADERS)
             if self.header_per_page or page_idx == 0:
-                minimum_header = 1400
+                minimum_header = 1500
             else:
                 minimum_header = 0
-            df = self.extracting_table(df_table, hasil_ocr, header_y_min=minimum_header, page=page_idx + 1)
+            df        = self.extracting_table(df_table, hasil_ocr, header_y_min=minimum_header, page=page_idx + 1)
             if df.empty:
                 print(f"⚠️ Dataframe kosong di halaman {page_idx + 1}, dilewati...") # ----- STAGE 3
                 continue
-            df        = self.normalize_table(df)
-            df_knd    = self.debit_and_kredit(df)
+            df_knd    = self.debit_and_kredit(df, kolom_keterangan=self.keterangan)
             all_pages_df.append(df_knd)
             
         if not all_pages_df:
@@ -587,9 +567,9 @@ class BCAExtractor:
             return pd.DataFrame()
         
         df_combined = pd.concat(all_pages_df, ignore_index=True)
-        df_combined = self.add_saldo_awal(df_combined)
-        df_close    = self.add_saldo_akhir(df_combined)
-        df_dp       = self.drop_next_duplicates(df_close)
-        df_close    = self.drop_incomplete(df_dp)
+        df_open     = self.add_saldo_awal(df_combined)
+        df_close    = self.add_saldo_akhir(df_open)
+        df_close    = self.drop_next_duplicates(df_close)
+        df_close    = self.drop_incomplete(df_close)
         df_final    = self.capitalize_and_date(df_close, output_excel)
         return df_final
