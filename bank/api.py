@@ -9,8 +9,6 @@ import shutil
 import os
 import pandas as pd
 import easyocr
-import torch
-torch.set_num_threads(1)
 
 # ---------------------------------------
 # ---- Importing Extractor & Matcher ----

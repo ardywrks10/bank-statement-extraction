@@ -7,3 +7,4 @@ easyocr
 scikit-learn
 pdf2image
 python-multipart
+openpyxl
