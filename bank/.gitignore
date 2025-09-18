@@ -1,0 +1,7 @@
+__pycache__/
+*.pyc
+*.pyo
+tmp/*
+hasil_konversi/*
+bukti_matching/*
+banks/*
