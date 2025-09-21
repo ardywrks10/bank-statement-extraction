@@ -537,7 +537,7 @@ class BCAExtractor:
     # Converting Many Functions
     # ---------------------------------
     def convert(self, pdf_path: str, pages: Union[str, List[int]] = "all", output_excel=None):
-        images = convert_from_path(pdf_path, dpi=210)
+        images = convert_from_path(pdf_path, dpi=300)
         if pages != "all":
             images = [images[i-1] for i in pages if 0 < i <= len(images)]
             
