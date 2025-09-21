@@ -1,0 +1,20 @@
+# Python cache
+__pycache__/
+*.pyc
+*.pyo
+
+# tmp
+tmp/*
+!tmp/.gitkeep
+
+# hasil_konversi
+hasil_konversi/*
+!hasil_konversi/.gitkeep
+
+# bukti_matching
+bukti_matching/*
+!bukti_matching/.gitkeep
+
+# banks
+banks/*
+!banks/.gitkeep
