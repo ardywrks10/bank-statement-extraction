@@ -2,7 +2,7 @@ import pandas as pd
 import numpy as np
 import re
 import itertools
-from datetime import timedelta
+from extractors.reconciler import Reconciler
 
 class BankJournalMatcher:
     def __init__(self, journal_path, bank_path, 
@@ -319,7 +319,7 @@ class BankJournalMatcher:
             ascending=[True, False, True],
             kind="mergesort" 
         ).drop(columns=["Tanggal Referensi", "HasID", "ID_num"])   
-        return df, group_counter
+        return df
     
     def add_unmatched_links(self, df, max_group=1):
         df = df.copy()
@@ -506,131 +506,18 @@ class BankJournalMatcher:
         ])
         return df, df_summary
 
-    def format_nominal(self, x, column_name=None) -> str:
-        try:
-            if pd.isna(x):
-                return "-"
-            x = float(x)
-            if x == 0 and column_name not in ["Saldo (RK)", "Saldo (BB)", "Debit (RK)", 
-                                              "Kredit (RK)", "Debit (BB)", "Kredit (BB)", "Debit (BB) - Kredit (RK)",
-                                              "Kredit (BB) - Debit (RK)", "Selisih"]:
-                return "-"
-            s = f"{x:,.2f}"
-            s = s.replace(",", "X").replace(".", ",").replace("X", ".")
-            return s
-        except (ValueError, TypeError):
-            return "-"
-
-    def is_blank(self, x)->bool:
-        if pd.isna(x): return True
-        x = str(x).strip().lower()
-        return x in {"", "-", "nan", "na", "null", "none"}
-    
-    def near_enough(self, a, b, abs_tol=1.0, rel_tol=0.0001):
-        m = max(abs(a), abs(b))
-        tol = max(abs_tol, rel_tol * m)
-        return abs(a-b) <= tol
-
-    def get_next_counter (self, df, col="ID"):
-        max_num = 0
-        if col in df.columns:
-            for val in df[col].dropna().astype(str):
-                m = re.match(r"^G\s*(\d+)$", val.strip())
-                if m:
-                    num = int(m.group(1))
-                    if num > max_num:
-                        max_num = num
-        return max_num + 1
-        
-    def final_trace(self, df, max_group=4):
-        df = df.copy()
-        counter = self.get_next_counter(df, col="ID")
-        
-        if "Catatan" not in df.columns:
-            df["Catatan"] = "-"
-
-        closing_db_cr = df["Debit (BB) - Kredit (RK)"].iloc[-1]
-        closing_cr_db = df["Kredit (BB) - Debit (RK)"].iloc[-1]
-
-        if closing_db_cr == closing_cr_db:
-            mask = (df["Status"] == "Unmatched") & ((df["ID"] == "-") | (df["ID"].isna()))
-            df.loc[mask, "ID"] = f"G{counter}"
-            return df
-
-        selisih = abs(closing_db_cr - closing_cr_db)
-        candidates = df[(df["Status"] == "Unmatched") & ((df["ID"] == "-") | (df["ID"].isna()))]
-        candidate_idx = candidates.index.tolist()
-
-        found = False
-        for r in range(1, max_group+1):
-            for combo in itertools.combinations(candidate_idx, r):
-                total = abs(df.loc[list(combo), "Debit (BB) - Kredit (RK)"].sum() -
-                        df.loc[list(combo), "Kredit (BB) - Debit (RK)"].sum())
-                if abs(total - selisih) < 1e-6:
-                    bb_only, rk_only = [], []
-                    for idx in combo:
-                        bb_amt = max(df.at[idx, "Debit (BB)"], df.at[idx, "Kredit (BB)"])
-                        rk_amt = max(df.at[idx, "Debit (RK)"], df.at[idx, "Kredit (RK)"])
-                        if bb_amt > 0 and rk_amt == 0: bb_only.append(idx)
-                        if rk_amt > 0 and bb_amt == 0: rk_only.append(idx)
-                        
-                    paired = set()
-                    for i in rk_only:
-                        amt_rk = df.at[i, "Debit (RK)"] or df.at[i, "Kredit (RK)"]
-                        best   = None
-                        for j in bb_only:
-                            if j in paired:
-                                continue
-                            amt_bb = df.at[j, "Debit (BB)"] or df.at[j, "Kredit (BB)"]
-                            if self.near_enough(amt_rk, amt_bb):
-                                best = j
-                                df.at[j, "ID"] = df.at[i, "ID"] = f"G{counter}"
-                        if best is not None:
-                            vch_i = df.at[i, "No Voucher"] if "No Voucher" in df.columns else None
-                            vch_j = df.at[best, "No Voucher"] if "No Voucher" in df.columns else None
-                            voucher = vch_i if not self.is_blank(vch_i) else (vch_j if not self.is_blank(vch_j) else None)
-
-                            df.at[i, "Catatan"] = (str(voucher) if voucher else "Typo (cek nilai & bukti)")
-                            df.at[best, "Catatan"] = (str(voucher) if voucher else "Typo (cek nilai & bukti)")
-
-                            paired.add(i); paired.add(best)
-                            counter += 1
-                            break
-
-                    for idx in combo:
-                        if idx in paired:
-                            continue
-                        v = df.at[idx, "No Voucher"] if "No Voucher" in df.columns else None
-                        if not self.is_blank(v):
-                            df.at[idx, "Catatan"] = str(v)
-                        else:
-                            df.at[idx, "Catatan"] = "Tambahkan Jurnal"
-
-                    found = True
-                    break
-            if found:
-                break
-
-        if not found and candidate_idx:
-            for idx in candidate_idx:
-                voucher = df.at[idx, "No Voucher"]
-                if voucher in [None, "-", "nan", "NaN", ""]:
-                    df.at[idx, "Catatan"] = "Rekening Koran"
-                else:
-                    df.at[idx, "Catatan"] = f"{voucher}"
-        return df
-
     def matching(self):
         self.load_data()
         self.journal_df = self.preprocess(self.journal_df)
         self.bank_df    = self.preprocess(self.bank_df)
         self.matched_df, saldo_awal_bb, saldo_awal_b = self.greedy_matching(self.journal_df, self.bank_df)
-        self.matched_df, counter = self.unmatched_links(self.matched_df)
+        self.matched_df = self.unmatched_links(self.matched_df)
         
         self.matched_df = self.add_unmatched_links(self.matched_df)
         self.matched_df = self.clean_empty_dates(self.matched_df)
         self.matched_df, self.df_summary = self.apply_saldo(self.matched_df, saldo_awal_bb, saldo_awal_b)
-        self.matched_df = self.final_trace(self.matched_df)
+        reconciler      = Reconciler(abs_tol=1.0, rel_tol=1e-4, max_group=4)
+        self.matched_df = reconciler.predict(self.matched_df)
 
         with pd.ExcelWriter(self.output_path, engine="openpyxl") as writer:
             self.matched_df.to_excel(writer, sheet_name="Transaksi", index=False)

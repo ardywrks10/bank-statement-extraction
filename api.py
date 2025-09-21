@@ -7,12 +7,12 @@ from typing import List, Dict, Optional
 from contextlib import asynccontextmanager
 import pathlib, shutil, pandas as pd, easyocr, os, json, re
 
-from bca import BCAExtractor
-from bni import BNIExtractor
-from permata import PermataExtractor
-from mandiri import MandiriExtractor
+from extractors.bca import BCAExtractor
+from extractors.bni import BNIExtractor
+from extractors.permata import PermataExtractor
+from extractors.mandiri import MandiriExtractor
 from matching import BankJournalMatcher
-from pipeline import Pipeline as DefaultBaseExtractor
+from extractors.pipeline import Pipeline as DefaultBaseExtractor
 
 EASYOCR_READER = None
 BANKS_DIR = pathlib.Path("banks")
