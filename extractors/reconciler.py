@@ -41,20 +41,18 @@ class Reconciler:
                         max_num = num
         return max_num + 1
     
+    def _amount(self, df, idx, side_main, side_alt):
+        return self._max_two(df.at[idx, side_main], df.at[idx, side_alt])
+    
     def rematching(self, df: pd.DataFrame) -> pd.DataFrame:
         if df is None or df.empty:
             return df.copy() if isinstance(df, pd.DataFrame) else df
         
         df = df.copy()
-        # Validasi kolom tabel
         for c, v in {"ID": "-", "Status": "", "Debit (BB)": 0.0, "Kredit (BB)": 0.0,
-                     "Debit (RK)": 0.0, "Kredit (RK)": 0.0, 
-                     "Catatan": "-"}.items():
+                     "Debit (RK)": 0.0, "Kredit (RK)": 0.0, "Catatan": "-"}.items():
             if c not in df.columns:
                 df[c] = v
-        
-        for c in ["Debit (BB)", "Kredit (BB)", "Debit (RK)", "Kredit (RK)"]:
-            df[c] = pd.to_numeric(df[c], errors="coerce").fillna(0.0)
         
         status_col   = df["Status"]
         blank_status = status_col.isna() | status_col.astype(str).str.strip().str.lower().isin(["", "-", "unmatched"])
@@ -66,7 +64,7 @@ class Reconciler:
         rk_kredit    = [i for i in cand_idx if self._max_two(df.at[i, "Kredit (RK)"], 0) > 0 and self._max_two(df.at[i, "Debit (RK)"], 0) == 0]   
         bb_debit     = [i for i in cand_idx if self._max_two(df.at[i, "Debit (BB)"], 0) > 0 and self._max_two(df.at[i, "Kredit (BB)"], 0) == 0]
         bb_kredit    = [i for i in cand_idx if self._max_two(df.at[i, "Kredit (BB)"], 0) > 0 and self._max_two(df.at[i, "Debit (BB)"], 0) == 0]
-        
+
         bb_debit.sort()
         bb_kredit.sort()
         rk_debit.sort()
@@ -74,8 +72,6 @@ class Reconciler:
         
         used      = set()
         counter   = self._get_next_counter(df, col="ID")
-        def _amount(idx, side_main, side_alt):
-            return self._max_two(df.at[idx, side_main], df.at[idx, side_alt])
         
         def _try_match(anchor_idx:int, pool: list, pool_side_main: str, pool_side_alt: str)-> bool:
             nonlocal counter
@@ -90,11 +86,11 @@ class Reconciler:
                 return False
             
             avail = [j for j in pool if j not in used and j != anchor_idx]
-            avail = [j for j in avail if _amount(j, pool_side_main, pool_side_alt) <= anchor_amt]
+            avail = [j for j in avail if self._amount(df, j, pool_side_main, pool_side_alt) <= anchor_amt]
 
             for r in range(1, min(self.max_group, len(avail)) + 1):
                 for combo in itertools.combinations(avail, r):
-                    s = sum(_amount(j, pool_side_main, pool_side_alt) for j in combo)
+                    s = sum(self._amount(df, j, pool_side_main, pool_side_alt) for j in combo)
                     if s == anchor_amt:
                         gid = f"G{counter}"
                         df.at[anchor_idx, "ID"] = gid
@@ -111,14 +107,67 @@ class Reconciler:
                         return True
             return False
         
-        for i in bb_debit: _try_match(i, rk_kredit, "Kredit (RK)", "Debit (RK)")
-        for i in bb_kredit: _try_match(i, rk_debit, "Debit (RK)", "Kredit (RK)")
+        for i in bb_debit   : _try_match(i, rk_kredit, "Kredit (RK)", "Debit (RK)")
+        for i in bb_kredit  : _try_match(i, rk_debit, "Debit (RK)", "Kredit (RK)")
+        return df
+    
+    def last_row_update(self, df: pd.DataFrame, rounding: int = 2) -> pd.DataFrame:
+        if df is None or len(df) == 0:
+            return df
+
+        df = df.copy()
+
+        num_cols = ["Debit (BB)", "Kredit (BB)", "Debit (RK)", "Kredit (RK)", "Saldo (BB)", "Saldo (RK)"]
+        must_have = ["Tanggal (BB)", "No Voucher", *num_cols, "Tanggal (RK)", "Debit (BB) - Kredit (RK)", "Kredit (BB) - Debit (RK)",
+                    "Status", "ID", "Catatan"]
+
+        for c in must_have:
+            if c not in df.columns:
+                df[c] = 0.0 if c in num_cols else "-"
+
+        for c in num_cols:
+            df[c] = pd.to_numeric(df[c], errors="coerce").fillna(0.0)
+
+        inner = df.iloc[1:-1] if len(df) > 1 else df.iloc[0:0]
+        total_debit_bb  = float(pd.to_numeric(inner["Debit (BB)"],  errors="coerce").fillna(0).sum())
+        total_kredit_bb = float(pd.to_numeric(inner["Kredit (BB)"], errors="coerce").fillna(0).sum())
+
+        total_debit_rk  = float(pd.to_numeric(inner["Debit (RK)"],  errors="coerce").fillna(0).sum())
+        total_kredit_rk = float(pd.to_numeric(inner["Kredit (RK)"], errors="coerce").fillna(0).sum())
+
+        sbb0 = pd.to_numeric(df.at[df.index[0], "Saldo (BB)"], errors="coerce")
+        srk0 = pd.to_numeric(df.at[df.index[0], "Saldo (RK)"], errors="coerce")
+        saldo_bb_awal = 0.0 if pd.isna(sbb0) else float(sbb0)
+        saldo_rk_awal = 0.0 if pd.isna(srk0) else float(srk0)
+
+        saldo_bb_akhir = saldo_bb_awal + total_debit_bb - total_kredit_bb
+        saldo_rk_akhir = saldo_rk_awal - total_debit_rk + total_kredit_rk
+
+        last = df.index[-1]
+
+        df.at[last, "No Voucher"] = "-"
+        df.at[last, "Debit (BB)"]  = round(total_debit_bb,  rounding)
+        df.at[last, "Kredit (BB)"] = round(total_kredit_bb, rounding)
+        df.at[last, "Saldo (BB)"]  = round(saldo_bb_akhir,  rounding)
+
+        df.at[last, "Debit (RK)"]  = round(total_debit_rk,  rounding)
+        df.at[last, "Kredit (RK)"] = round(total_kredit_rk, rounding)
+        df.at[last, "Saldo (RK)"]  = round(saldo_rk_akhir,  rounding)
+
+        df.at[last, "Debit (BB) - Kredit (RK)"] = round(total_debit_bb - total_kredit_rk, rounding)
+        df.at[last, "Kredit (BB) - Debit (RK)"] = round(total_kredit_bb - total_debit_rk, rounding)
+
+        df.at[last, "Status"]  = "Closing Balance"
+        df.at[last, "ID"]      = "-"
+        df.at[last, "Catatan"] = "-"
+
         return df
     
     def predict(self, df: pd.DataFrame) -> pd.DataFrame:
         df = df.copy()
         
         df = self.rematching(df)
+        df = self.last_row_update(df)
         counter = self._get_next_counter(df, col="ID")
         
         if "Catatan" not in df.columns:
@@ -161,7 +210,6 @@ class Reconciler:
                                 best = j
                                 break  
                         if best is not None:
-                            df.at[best, "ID"] = df.at[i, "ID"] = f"G{counter}"
                             vch_i = df.at[i, "No Voucher"] if "No Voucher" in df.columns else None
                             vch_j = df.at[best, "No Voucher"] if "No Voucher" in df.columns else None
                             voucher = vch_i if not self._is_blank(vch_i) else (vch_j if not self._is_blank(vch_j) else None)
@@ -189,7 +237,7 @@ class Reconciler:
             for idx in candidate_idx:
                 voucher = df.at[idx, "No Voucher"]
                 if voucher in [None, "-", "nan", "NaN", ""]:
-                    df.at[idx, "Catatan"] = "Rekening Koran"
+                    df.at[idx, "Catatan"] = "Tambahkan Jurnal"
                 else:
-                    df.at[idx, "Catatan"] = f"{voucher}"
+                    df.at[idx, "Catatan"] = f"{voucher}"                    
         return df
