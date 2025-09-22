@@ -41,8 +41,84 @@ class Reconciler:
                         max_num = num
         return max_num + 1
     
+    def rematching(self, df: pd.DataFrame) -> pd.DataFrame:
+        if df is None or df.empty:
+            return df.copy() if isinstance(df, pd.DataFrame) else df
+        
+        df = df.copy()
+        # Validasi kolom tabel
+        for c, v in {"ID": "-", "Status": "", "Debit (BB)": 0.0, "Kredit (BB)": 0.0,
+                     "Debit (RK)": 0.0, "Kredit (RK)": 0.0, 
+                     "Catatan": "-"}.items():
+            if c not in df.columns:
+                df[c] = v
+        
+        for c in ["Debit (BB)", "Kredit (BB)", "Debit (RK)", "Kredit (RK)"]:
+            df[c] = pd.to_numeric(df[c], errors="coerce").fillna(0.0)
+        
+        status_col   = df["Status"]
+        blank_status = status_col.isna() | status_col.astype(str).str.strip().str.lower().isin(["", "-", "unmatched"])
+        blank_id     = df["ID"].isna() | df["ID"].astype(str).str.strip().isin(["", "-"])
+        cand_mask    = blank_status & blank_id 
+        cand_idx     = df.index[cand_mask].tolist()
+        
+        rk_debit     = [i for i in cand_idx if self._max_two(df.at[i, "Debit (RK)"], 0) > 0 and self._max_two(df.at[i, "Kredit (RK)"], 0) == 0]
+        rk_kredit    = [i for i in cand_idx if self._max_two(df.at[i, "Kredit (RK)"], 0) > 0 and self._max_two(df.at[i, "Debit (RK)"], 0) == 0]   
+        bb_debit     = [i for i in cand_idx if self._max_two(df.at[i, "Debit (BB)"], 0) > 0 and self._max_two(df.at[i, "Kredit (BB)"], 0) == 0]
+        bb_kredit    = [i for i in cand_idx if self._max_two(df.at[i, "Kredit (BB)"], 0) > 0 and self._max_two(df.at[i, "Debit (BB)"], 0) == 0]
+        
+        bb_debit.sort()
+        bb_kredit.sort()
+        rk_debit.sort()
+        rk_kredit.sort()
+        
+        used      = set()
+        counter   = self._get_next_counter(df, col="ID")
+        def _amount(idx, side_main, side_alt):
+            return self._max_two(df.at[idx, side_main], df.at[idx, side_alt])
+        
+        def _try_match(anchor_idx:int, pool: list, pool_side_main: str, pool_side_alt: str)-> bool:
+            nonlocal counter
+            if anchor_idx in used:
+                return False
+            
+            if df.at[anchor_idx, "Debit (BB)"] > 0 and df.at[anchor_idx, "Kredit (BB)"] == 0:
+                anchor_amt = float(df.at[anchor_idx, "Debit (BB)"])
+            else:
+                anchor_amt = float(df.at[anchor_idx, "Kredit (BB)"])
+            if anchor_amt <= 0:
+                return False
+            
+            avail = [j for j in pool if j not in used and j != anchor_idx]
+            avail = [j for j in avail if _amount(j, pool_side_main, pool_side_alt) <= anchor_amt]
+
+            for r in range(1, min(self.max_group, len(avail)) + 1):
+                for combo in itertools.combinations(avail, r):
+                    s = sum(_amount(j, pool_side_main, pool_side_alt) for j in combo)
+                    if s == anchor_amt:
+                        gid = f"G{counter}"
+                        df.at[anchor_idx, "ID"] = gid
+                        df.at[anchor_idx, "Status"] = "Matched"
+                        df.at[anchor_idx, "Catatan"] = "-"
+                        used.add(anchor_idx)
+                        
+                        for j in combo:
+                            df.at[j, "ID"] = gid
+                            df.at[j, "Status"] = "Matched"
+                            df.at[j, "Catatan"]= "-"
+                            used.add(j)
+                        counter += 1
+                        return True
+            return False
+        
+        for i in bb_debit: _try_match(i, rk_kredit, "Kredit (RK)", "Debit (RK)")
+        for i in bb_kredit: _try_match(i, rk_debit, "Debit (RK)", "Kredit (RK)")
+        return df
+    
     def predict(self, df: pd.DataFrame) -> pd.DataFrame:
         df = df.copy()
+        
+        df = self.rematching(df)
         counter = self._get_next_counter(df, col="ID")
         
         if "Catatan" not in df.columns:
