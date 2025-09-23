@@ -13,6 +13,158 @@ from extractors.permata import PermataExtractor
 from extractors.mandiri import MandiriExtractor
 from matching import BankJournalMatcher
 from extractors.pipeline import Pipeline as DefaultBaseExtractor
+# --- di api.py, ganti definisi _to_iso_date() ---
+import numpy as np
+import pandas as pd
+from datetime import date, datetime
+
+def _to_iso_date(x):
+    # 1) Tangani None / NaT / NaN lebih dulu
+    try:
+        if x is None or pd.isna(x):
+            return None
+    except Exception:
+        # kalau objeknya tidak bisa di-check oleh pd.isna
+        if x is None:
+            return None
+
+    # 2) Pandas Timestamp (termasuk yang non-NaT)
+    if isinstance(x, pd.Timestamp):
+        # pd.Timestamp NaT juga akan ketangkap di pd.isna() di atas
+        try:
+            return x.to_pydatetime().strftime("%Y-%m-%d")
+        except Exception:
+            return None
+
+    # 3) numpy datetime64
+    if isinstance(x, np.datetime64):
+        dt = pd.to_datetime(x, errors="coerce")
+        if pd.isna(dt):
+            return None
+        try:
+            return dt.to_pydatetime().strftime("%Y-%m-%d")
+        except Exception:
+            return None
+
+    # 4) Python datetime/date
+    if isinstance(x, (datetime, date)):
+        try:
+            return x.strftime("%Y-%m-%d")
+        except Exception:
+            return None
+
+    # 5) String mentah (biarkan apa adanya kecuali "-" / "")
+    if isinstance(x, str):
+        s = x.strip()
+        return None if s in {"", "-"} else s
+
+    # 6) Tipe lain -> anggap tidak ada tanggal
+    return None
+
+
+def _snake(s: str) -> str:
+    # Ubah label-lable "Tanggal (BB)" → "tanggal_bb", "No Voucher" → "no_voucher"
+    s = s.strip().lower()
+    s = s.replace("(", "_").replace(")", "")
+    s = s.replace("/", "_").replace("-", "_").replace(" ", "_")
+    s = re.sub(r"__+", "_", s)
+    return s
+
+# mapping kolom transaksi → kunci json (agar urutan konsisten)
+TRANSACTION_KEY_ORDER = [
+    "tanggal_bb","no_voucher","debit_bb","kredit_bb","saldo_bb",
+    "tanggal_rk","debit_rk","kredit_rk","saldo_rk",
+    "debit_bb_kredit_rk","kredit_bb_debit_rk",
+    "status","id","catatan"
+]
+
+TRANSACTION_COL_MAP = {
+    "Tanggal (BB)": "tanggal_bb",
+    "No Voucher": "no_voucher",
+    "Debit (BB)": "debit_bb",
+    "Kredit (BB)": "kredit_bb",
+    "Saldo (BB)": "saldo_bb",
+    "Tanggal (RK)": "tanggal_rk",
+    "Debit (RK)": "debit_rk",
+    "Kredit (RK)": "kredit_rk",
+    "Saldo (RK)": "saldo_rk",
+    "Debit (BB) - Kredit (RK)": "debit_bb_kredit_rk",
+    "Kredit (BB) - Debit (RK)": "kredit_bb_debit_rk",
+    "Status": "status",
+    "ID": "id",
+    "Catatan": "catatan",
+}
+
+SUMMARY_KEY_ORDER = ["jenis_saldo","tanggal","buku_besar_bb","rekening_koran_rk","selisih"]
+SUMMARY_COL_MAP = {
+    "Jenis Saldo": "jenis_saldo",
+    "Tanggal": "tanggal",
+    "Buku Besar (BB)": "buku_besar_bb",
+    "Rekening Koran (RK)": "rekening_koran_rk",
+    "Selisih": "selisih",
+}
+
+def _df_to_transactions(df: pd.DataFrame) -> list:
+    if df is None or df.empty:
+        return []
+    # rename kolom sesuai peta, sisanya di-snake-case agar tetap ikut JSON bila ada kolom tambahan
+    rename_map = {c: TRANSACTION_COL_MAP.get(c, _snake(str(c))) for c in df.columns}
+    dfr = df.rename(columns=rename_map).copy()
+
+    recs = []
+    for _, row in dfr.iterrows():
+        obj = {}
+        for k in TRANSACTION_KEY_ORDER:
+            if k in dfr.columns:
+                v = row.get(k)
+                if k in ("tanggal_bb","tanggal_rk"):
+                    obj[k] = _to_iso_date(v)
+                else:
+                    # angka tetap angka, "-" jadi None
+                    if isinstance(v, str) and v.strip() == "-":
+                        obj[k] = None
+                    else:
+                        # usahakan float/int apa adanya
+                        try:
+                            if pd.isna(v):
+                                obj[k] = None
+                            else:
+                                obj[k] = float(v) if isinstance(v, (int, float, np.number)) else (str(v) if v not in [None, ""] else None)
+                        except Exception:
+                            obj[k] = str(v) if v not in [None, ""] else None
+        # tambahkan kolom lain yang mungkin ada (di luar order default)
+        for k in dfr.columns:
+            if k not in obj and k not in TRANSACTION_KEY_ORDER:
+                val = row.get(k)
+                obj[k] = None if (isinstance(val, str) and val.strip() == "-") else (None if pd.isna(val) else val)
+        recs.append(obj)
+    return recs
+
+def _df_to_summary(df: pd.DataFrame) -> list:
+    if df is None or df.empty:
+        return []
+    dfr = df.rename(columns={c: SUMMARY_COL_MAP.get(c, _snake(str(c))) for c in df.columns}).copy()
+    recs = []
+    for _, row in dfr.iterrows():
+        obj = {}
+        for k in SUMMARY_KEY_ORDER:
+            if k in dfr.columns:
+                v = row.get(k)
+                if k == "tanggal":
+                    obj[k] = _to_iso_date(v)
+                else:
+                    if isinstance(v, str) and v.strip() == "-":
+                        obj[k] = None
+                    else:
+                        obj[k] = None if pd.isna(v) else v
+        # kolom tambahan lain
+        for k in dfr.columns:
+            if k not in obj and k not in SUMMARY_KEY_ORDER:
+                v = row.get(k)
+                obj[k] = None if (isinstance(v, str) and v.strip() == "-") else (None if pd.isna(v) else v)
+        recs.append(obj)
+    return recs
+
 
 EASYOCR_READER = None
 BANKS_DIR = pathlib.Path("banks")
@@ -364,11 +516,19 @@ async def process_file(
     try:
         matcher = BankJournalMatcher(journal_path=bb_path, bank_path=output_excel, output_path=output_matching)
         matched_df: pd.DataFrame = matcher.matching()
+        summary_df: pd.DataFrame = matcher.df_summary
     except Exception as e:
         raise HTTPException(status_code=500, detail=f"Proses Matching Gagal: {e}")
+    
+     # === bangun JSON ===
+    transactions_json = _df_to_transactions(matched_df)
+    summary_json      = _df_to_summary(summary_df)
+
     return {
         "status"         : "success",
         "bank"           : bank_name,
+        "transactions": transactions_json,
+        "summary": summary_json,
         "rows_extracted" : int(len(df_bank)),
         "rows_matched"   : int(len(matched_df)),
         "output_excel"   : output_excel,
