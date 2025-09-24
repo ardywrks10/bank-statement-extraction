@@ -4,7 +4,7 @@ import pandas as pd
 from typing import Iterable, List, Optional
 
 class Reconciler:
-    def __init__(self, abs_tol: float = 1.0, rel_tol: float = 1e-4, max_group: int = 4):
+    def __init__(self, abs_tol: float = 1.0, rel_tol: float = 1e-4, max_group: int = 6):
         self.abs_tol = abs_tol
         self.rel_tol = rel_tol
         self.max_group = max_group
@@ -118,7 +118,7 @@ class Reconciler:
         df = df.copy()
 
         num_cols = ["Debit (BB)", "Kredit (BB)", "Debit (RK)", "Kredit (RK)", "Saldo (BB)", "Saldo (RK)"]
-        must_have = ["Tanggal (BB)", "No Voucher", *num_cols, "Tanggal (RK)", "Debit (BB) - Kredit (RK)", "Kredit (BB) - Debit (RK)",
+        must_have = ["Tanggal (BB)", "Jurnal ID", *num_cols, "Tanggal (RK)", "Debit (BB) - Kredit (RK)", "Kredit (BB) - Debit (RK)",
                     "Status", "ID", "Catatan"]
 
         for c in must_have:
@@ -145,7 +145,7 @@ class Reconciler:
 
         last = df.index[-1]
 
-        df.at[last, "No Voucher"] = "-"
+        df.at[last, "Jurnal ID"] = "-"
         df.at[last, "Debit (BB)"]  = round(total_debit_bb,  rounding)
         df.at[last, "Kredit (BB)"] = round(total_kredit_bb, rounding)
         df.at[last, "Saldo (BB)"]  = round(saldo_bb_akhir,  rounding)
@@ -210,8 +210,8 @@ class Reconciler:
                                 best = j
                                 break  
                         if best is not None:
-                            vch_i = df.at[i, "No Voucher"] if "No Voucher" in df.columns else None
-                            vch_j = df.at[best, "No Voucher"] if "No Voucher" in df.columns else None
+                            vch_i = df.at[i, "Jurnal ID"] if "Jurnal ID" in df.columns else None
+                            vch_j = df.at[best, "Jurnal ID"] if "Jurnal ID" in df.columns else None
                             voucher = vch_i if not self._is_blank(vch_i) else (vch_j if not self._is_blank(vch_j) else None)
                             note = str(voucher) if voucher else "Typo (cek nilai & bukti)"
                             df.at[i, "Catatan"] = note
@@ -222,7 +222,7 @@ class Reconciler:
                     for idx in combo:
                         if idx in paired:
                             continue
-                        v = df.at[idx, "No Voucher"] if "No Voucher" in df.columns else None
+                        v = df.at[idx, "Jurnal ID"] if "Jurnal ID" in df.columns else None
                         if not self._is_blank(v):
                             df.at[idx, "Catatan"] = str(v)
                         else:
@@ -235,7 +235,7 @@ class Reconciler:
 
         if not found and candidate_idx:
             for idx in candidate_idx:
-                voucher = df.at[idx, "No Voucher"]
+                voucher = df.at[idx, "Jurnal ID"]
                 if voucher in [None, "-", "nan", "NaN", ""]:
                     df.at[idx, "Catatan"] = "Tambahkan Jurnal"
                 else:

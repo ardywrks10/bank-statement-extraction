@@ -57,8 +57,8 @@ class BankJournalMatcher:
                 rename_map[col] = "Kredit"
             elif re.search(r"(balance|saldo)", col):
                 rename_map[col] = "Saldo"
-            elif re.search(r"no[-_\s]?voucher", col):   
-                rename_map[col] = "No Voucher"
+            elif re.search(r"jurnal[-_\s]?id", col):   
+                rename_map[col] = "Jurnal ID"
         df = df.rename(columns=rename_map)
 
         date_pattern = re.compile(r"(tgl|tanggal|date)", re.IGNORECASE)
@@ -76,6 +76,7 @@ class BankJournalMatcher:
         return df
     
     def greedy_matching(self, journal_df, bank_df, rounding=2):
+        import pandas as pd
         results = []
 
         for col in ["Debit", "Kredit", "Saldo"]:
@@ -85,57 +86,54 @@ class BankJournalMatcher:
                 bank_df[col] = bank_df[col].astype(float)
 
         matched_bank_idxs = set()
-        journal_n1 = journal_df.iloc[1:-1]  
-        bank_n1    = bank_df.iloc[1:-1]     
-    
-        for j_idx, j_row in journal_n1.iterrows():
-            j_tgl     = j_row["Tgl"]
-            j_debit   = j_row["Debit"]
-            j_kredit  = j_row["Kredit"]
-            j_voucher = j_row["No Voucher"] 
 
-            found = None
+        journal_n1 = journal_df.iloc[1:-1]
+        bank_n1    = bank_df.iloc[1:-1]
+
+        def find_best_match(j_tgl, amount, side):
+            best = (None, None, None)  
             for b_idx, b_row in bank_n1.iterrows():
                 if b_idx in matched_bank_idxs:
                     continue
+
                 b_tgl    = b_row["Tgl"]
-                b_debet  = b_row["Debit"]
-                b_kredit = b_row["Kredit"]
+                b_debet  = float(b_row["Debit"])
+                b_kredit = float(b_row["Kredit"])
 
                 try:
-                    if j_tgl and b_tgl:
-                        delta_hari = abs((j_tgl - b_tgl).days)
-                    else:
-                        delta_hari = 999 
+                    delta_hari = abs((j_tgl - b_tgl).days) if (pd.notna(j_tgl) and pd.notna(b_tgl)) else 999
                 except Exception:
                     delta_hari = 999
+                if delta_hari > self.date_tolerance:
+                    continue
 
-                if delta_hari <= self.date_tolerance:  
-                    if (j_debit == b_kredit and j_kredit == 0 and b_debet == 0) or \
-                    (j_kredit == b_debet and j_debit == 0 and b_kredit == 0):
-                        found = {
-                            "Tanggal (BB)" : j_tgl,
-                            "No Voucher"   : j_voucher if pd.notna(j_voucher) else "-",
-                            "Debit (BB)"   : j_debit,
-                            "Kredit (BB)"  : j_kredit,
-                            "Saldo (BB)"   : 0.0,
-                            "Tanggal (RK)" : b_tgl,
-                            "Debit (RK)"   : b_debet,
-                            "Kredit (RK)"  : b_kredit,
-                            "Saldo (RK)"   : 0.0,
-                            "Debit (BB) - Kredit (RK)" : round(j_debit - b_kredit, rounding),
-                            "Kredit (BB) - Debit (RK)" : round(j_kredit - b_debet, rounding),
-                            "Status"       : "Matched",
-                            "Catatan"      : "-"
-                        }
-                        matched_bank_idxs.add(b_idx)
-                        break
-            if found:
-                results.append(found)
-            else:
+                if side == "debit": 
+                    if amount != 0 and b_kredit != 0 and round(amount, rounding) == round(b_kredit, rounding):
+                        if best[0] is None or delta_hari < best[0]:
+                            best = (delta_hari, b_idx, b_row)
+                else:  
+                    if amount != 0 and b_debet != 0 and round(amount, rounding) == round(b_debet, rounding):
+                        if best[0] is None or delta_hari < best[0]:
+                            best = (delta_hari, b_idx, b_row)
+
+            return (best[1], best[2]) if best[1] is not None else (None, None)
+
+        for j_idx, j_row in journal_n1.iterrows():
+            j_tgl     = j_row["Tgl"]
+            j_debit   = float(j_row["Debit"])
+            j_kredit  = float(j_row["Kredit"])
+            j_voucher = j_row.get("Jurnal ID", None)
+
+            components = []
+            if j_debit != 0:
+                components.append(("debit", j_debit))
+            if j_kredit != 0:
+                components.append(("credit", j_kredit))
+
+            if not components:
                 results.append({
                     "Tanggal (BB)" : j_tgl,
-                    "No Voucher"   : j_voucher if pd.notna(j_voucher) else "-",
+                    "Jurnal ID"    : j_voucher if pd.notna(j_voucher) else "-",
                     "Debit (BB)"   : j_debit,
                     "Kredit (BB)"  : j_kredit,
                     "Saldo (BB)"   : 0.0,
@@ -148,44 +146,125 @@ class BankJournalMatcher:
                     "Status"       : "Unmatched",
                     "Catatan"      : "-"
                 })
+                continue
+
+            for side, amount in components:
+                b_idx, b_row = find_best_match(j_tgl, amount, side)
+
+                if b_idx is not None:
+                    b_tgl    = b_row["Tgl"]
+                    b_debet  = float(b_row["Debit"])
+                    b_kredit = float(b_row["Kredit"])
+
+                    if side == "debit":
+                        results.append({
+                            "Tanggal (BB)" : j_tgl,
+                            "Jurnal ID"    : j_voucher if pd.notna(j_voucher) else "-",
+                            "Debit (BB)"   : amount,
+                            "Kredit (BB)"  : 0.0,
+                            "Saldo (BB)"   : 0.0,
+                            "Tanggal (RK)" : b_tgl,
+                            "Debit (RK)"   : b_debet,
+                            "Kredit (RK)"  : b_kredit,
+                            "Saldo (RK)"   : 0.0,
+                            "Debit (BB) - Kredit (RK)" : round(amount - b_kredit, rounding),
+                            "Kredit (BB) - Debit (RK)" : round(0.0    - b_debet , rounding),
+                            "Status"       : "Matched",
+                            "Catatan"      : "-"
+                        })
+                    else:  # side == "credit"
+                        results.append({
+                            "Tanggal (BB)" : j_tgl,
+                            "Jurnal ID"    : j_voucher if pd.notna(j_voucher) else "-",
+                            "Debit (BB)"   : 0.0,
+                            "Kredit (BB)"  : amount,
+                            "Saldo (BB)"   : 0.0,
+                            "Tanggal (RK)" : b_tgl,
+                            "Debit (RK)"   : b_debet,
+                            "Kredit (RK)"  : b_kredit,
+                            "Saldo (RK)"   : 0.0,
+                            "Debit (BB) - Kredit (RK)" : round(0.0    - b_kredit, rounding),
+                            "Kredit (BB) - Debit (RK)" : round(amount - b_debet , rounding),
+                            "Status"       : "Matched",
+                            "Catatan"      : "-"
+                        })
+
+                    matched_bank_idxs.add(b_idx)
+
+                else:
+                    if side == "debit":
+                        results.append({
+                            "Tanggal (BB)" : j_tgl,
+                            "Jurnal ID"    : j_voucher if pd.notna(j_voucher) else "-",
+                            "Debit (BB)"   : amount,
+                            "Kredit (BB)"  : 0.0,
+                            "Saldo (BB)"   : 0.0,
+                            "Tanggal (RK)" : "-",
+                            "Debit (RK)"   : 0.0,
+                            "Kredit (RK)"  : 0.0,
+                            "Saldo (RK)"   : 0.0,
+                            "Debit (BB) - Kredit (RK)" : round(amount, rounding),
+                            "Kredit (BB) - Debit (RK)" : round(0.0   , rounding),
+                            "Status"       : "Unmatched",
+                            "Catatan"      : "-"
+                        })
+                    else:
+                        results.append({
+                            "Tanggal (BB)" : j_tgl,
+                            "Jurnal ID"    : j_voucher if pd.notna(j_voucher) else "-",
+                            "Debit (BB)"   : 0.0,
+                            "Kredit (BB)"  : amount,
+                            "Saldo (BB)"   : 0.0,
+                            "Tanggal (RK)" : "-",
+                            "Debit (RK)"   : 0.0,
+                            "Kredit (RK)"  : 0.0,
+                            "Saldo (RK)"   : 0.0,
+                            "Debit (BB) - Kredit (RK)" : round(0.0   , rounding),
+                            "Kredit (BB) - Debit (RK)" : round(amount, rounding),
+                            "Status"       : "Unmatched",
+                            "Catatan"      : "-"
+                        })
+
 
         for b_idx, b_row in bank_n1.iterrows():
             if b_idx not in matched_bank_idxs:
-                b_debet  = b_row["Debit"]
-                b_kredit = b_row["Kredit"]
+                b_debet  = float(b_row["Debit"])
+                b_kredit = float(b_row["Kredit"])
                 results.append({
-                    "Tanggal (BB)"      : "-",
-                    "No Voucher"        : "-",
-                    "Debit (BB)"        : 0.0,
-                    "Kredit (BB)"       : 0.0,
-                    "Saldo (BB)"        : 0.0,
-                    "Tanggal (RK)"      : b_row["Tgl"],
-                    "Debit (RK)"        : b_debet,
-                    "Kredit (RK)"       : b_kredit,
-                    "Saldo (RK)"        : 0.0,
-                    "Debit (BB) - Kredit (RK)" : round(0-b_kredit, rounding),
-                    "Kredit (BB) - Debit (RK)" : round(0-b_debet, rounding),
-                    "Status"            : "Unmatched",
-                    "Catatan"           : "-"
+                    "Tanggal (BB)" : "-",
+                    "Jurnal ID"    : "-",
+                    "Debit (BB)"   : 0.0,
+                    "Kredit (BB)"  : 0.0,
+                    "Saldo (BB)"   : 0.0,
+                    "Tanggal (RK)" : b_row["Tgl"],
+                    "Debit (RK)"   : b_debet,
+                    "Kredit (RK)"  : b_kredit,
+                    "Saldo (RK)"   : 0.0,
+                    "Debit (BB) - Kredit (RK)" : round(0 - b_kredit, rounding),
+                    "Kredit (BB) - Debit (RK)" : round(0 - b_debet , rounding),
+                    "Status"       : "Unmatched",
+                    "Catatan"      : "-"
                 })
-                
+
         saldo_awal   = round(float(journal_df.iloc[0]["Saldo"]), rounding)
         saldo_awal_b = round(float(bank_df.iloc[0]["Saldo"]), rounding)
+
         df_results = pd.DataFrame(results)
-        cols       = ["Tanggal (BB)", "Tanggal (RK)"]
-        df_results[cols]  = df_results[cols].apply(
-            lambda col: pd.to_datetime(col, format="%d/%m/%Y", errors="coerce").dt.date)
+        for col in ["Tanggal (BB)", "Tanggal (RK)"]:
+            df_results[col] = pd.to_datetime(df_results[col], format="%d/%m/%Y", errors="coerce").dt.date
         df_results["Tanggal Referensi"] = df_results["Tanggal (BB)"].fillna(df_results["Tanggal (RK)"])
-        df_results = df_results.sort_values(by=["Tanggal Referensi", "Tanggal (BB)", 
-                                                "Tanggal (RK)"], ascending=[True, True, True])
-        df_results = df_results.drop(columns=["Tanggal Referensi"])
+        df_results = df_results.sort_values(
+            by=["Tanggal Referensi", "Tanggal (BB)", "Tanggal (RK)"],
+            ascending=[True, True, True]
+        ).drop(columns=["Tanggal Referensi"])
+
         if "Status" in df_results.columns:
             akhir_cols = ["Status"]
-            cols = [c for c in df_results.columns if c not in akhir_cols] \
-                 + [c for c in akhir_cols if c in df_results.columns]
+            cols = [c for c in df_results.columns if c not in akhir_cols] + akhir_cols
             df_results = df_results[cols]
+
         return df_results, saldo_awal, saldo_awal_b
-    
+
     def unmatched_links(self, df, max_group = 4):
         df = df.copy()
         df["ID"] = '-' 
@@ -453,7 +532,7 @@ class BankJournalMatcher:
 
         opening_row = {
             "Tanggal (BB)": opening_date_bb, 
-            "No Voucher": "-", 
+            "Jurnal ID": "-", 
             "Debit (BB)": 0.0,
             "Kredit (BB)": 0.0, "Saldo (BB)": saldo_awal_bb,
             "Tanggal (RK)": opening_date_rk, "Debit (RK)": 0.0,
@@ -476,7 +555,7 @@ class BankJournalMatcher:
 
         closing_row = {
             "Tanggal (BB)": closing_date_bb, 
-            "No Voucher": "-", 
+            "Jurnal ID": "-", 
             "Debit (BB)": total_debit_bb,
             "Kredit (BB)": total_kredit_bb, "Saldo (BB)": saldo_bb_akhir,
             "Tanggal (RK)": closing_date_rk, "Debit (RK)": total_debit_b,
@@ -516,7 +595,7 @@ class BankJournalMatcher:
         self.matched_df = self.add_unmatched_links(self.matched_df)
         self.matched_df = self.clean_empty_dates(self.matched_df)
         self.matched_df, self.df_summary = self.apply_saldo(self.matched_df, saldo_awal_bb, saldo_awal_b)
-        reconciler      = Reconciler(abs_tol=1.0, rel_tol=1e-4, max_group=4)
+        reconciler      = Reconciler(abs_tol=1.0, rel_tol=1e-4, max_group=6)
         self.matched_df = reconciler.predict(self.matched_df)
 
         with pd.ExcelWriter(self.output_path, engine="openpyxl") as writer:
