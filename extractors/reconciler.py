@@ -125,6 +125,9 @@ class Reconciler:
             if c not in df.columns:
                 df[c] = 0.0 if c in num_cols else "-"
 
+        if "Jurnal ID" in df.columns and df["Jurnal ID"].dtype != "object":
+            df["Jurnal ID"] = df["Jurnal ID"].astype("object")
+
         for c in num_cols:
             df[c] = pd.to_numeric(df[c], errors="coerce").fillna(0.0)
 
