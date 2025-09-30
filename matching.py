@@ -5,15 +5,14 @@ import itertools
 from extractors.reconciler import Reconciler
 
 class BankJournalMatcher:
-    def __init__(self, journal_path, bank_path, 
-                 output_path = "matched_df.xlsx"):
-        self.journal_path  = journal_path
-        self.bank_path     = bank_path
-        self.output_path   = output_path
-        self.journal_df    = None
-        self.bank_df       = None
-        self.matched_df    = None
-        self.df_summary    = None
+    def __init__(self, journal_path, bank_path, output_path = "matched_df.xlsx"):
+        self.journal_path   = journal_path
+        self.bank_path      = bank_path
+        self.output_path    = output_path
+        self.journal_df     = None
+        self.bank_df        = None
+        self.matched_df     = None
+        self.df_summary     = None
         self.date_tolerance = 7
         self.amount_tolerance = 0.0
 
@@ -76,7 +75,6 @@ class BankJournalMatcher:
         return df
     
     def greedy_matching(self, journal_df, bank_df, rounding=2):
-        import pandas as pd
         results = []
 
         for col in ["Debit", "Kredit", "Saldo"]:
@@ -172,7 +170,7 @@ class BankJournalMatcher:
                             "Status"       : "Matched",
                             "Catatan"      : "-"
                         })
-                    else:  # side == "credit"
+                    else:
                         results.append({
                             "Tanggal (BB)" : j_tgl,
                             "Jurnal ID"    : j_voucher if pd.notna(j_voucher) else "-",
@@ -265,7 +263,7 @@ class BankJournalMatcher:
 
         return df_results, saldo_awal, saldo_awal_b
 
-    def unmatched_links(self, df, max_group = 4):
+    def grouping_unmatched(self, df, max_group = 4):
         df = df.copy()
         df["ID"] = '-' 
         unmatched = df[df["Status"] == "Unmatched"]
@@ -400,7 +398,7 @@ class BankJournalMatcher:
         ).drop(columns=["Tanggal Referensi", "HasID", "ID_num"])   
         return df
     
-    def add_unmatched_links(self, df, max_group=1):
+    def internal_transfer(self, df, max_group=1):
         df = df.copy()
         unmatched = df[(df["Status"] == "Unmatched") & (df["ID"] == "-")]
         
@@ -590,9 +588,9 @@ class BankJournalMatcher:
         self.journal_df = self.preprocess(self.journal_df)
         self.bank_df    = self.preprocess(self.bank_df)
         self.matched_df, saldo_awal_bb, saldo_awal_b = self.greedy_matching(self.journal_df, self.bank_df)
-        self.matched_df = self.unmatched_links(self.matched_df)
+        self.matched_df = self.grouping_unmatched(self.matched_df)
         
-        self.matched_df = self.add_unmatched_links(self.matched_df)
+        self.matched_df = self.internal_transfer(self.matched_df)
         self.matched_df = self.clean_empty_dates(self.matched_df)
         self.matched_df, self.df_summary = self.apply_saldo(self.matched_df, saldo_awal_bb, saldo_awal_b)
         reconciler      = Reconciler(abs_tol=1.0, rel_tol=1e-4, max_group=6)
