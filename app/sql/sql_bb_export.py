@@ -5,14 +5,17 @@ import pandas as pd
 from datetime import date
 from typing import Optional, List, Dict, Any
 import decimal
+from dotenv import load_dotenv
 
-# --- DB config (hardcode sesuai permintaanmu) ---
+load_dotenv()
+
+# --- DB config ---
 MYSQL_CFG = {
-    "host": "127.0.0.1",
-    "port": 3306,
-    "user": "root",
-    "password": "root",
-    "database": "sedana_raditya",
+    "host": os.getenv("DB_HOST", "127.0.0.1"),
+    "port": int(os.getenv("DB_PORT", "3306")),
+    "user": os.getenv("DB_USER", ""),
+    "password": os.getenv("DB_PASSWORD"),
+    "database": os.getenv("DB_NAME", ""),
     "cursorclass": pymysql.cursors.DictCursor,
     "autocommit": True,
 }

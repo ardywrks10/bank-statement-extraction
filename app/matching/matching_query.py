@@ -3,7 +3,7 @@ import numpy as np
 import re
 import itertools
 from typing import Optional
-from extractors.reconciler import Reconciler
+from app.extractors.reconciler import Reconciler
 
 class BankJournalMatcher:
     def __init__(self,
@@ -72,7 +72,6 @@ class BankJournalMatcher:
 
     def preprocess(self, df):
         df = df.copy()
-        # normalisasi kolom
         df.columns = [str(c).strip().lower() for c in df.columns]
         rename_map = {}
         for col in df.columns:
@@ -82,31 +81,29 @@ class BankJournalMatcher:
                 rename_map[col] = "Kredit"
             elif re.search(r"(balance|saldo)", col):
                 rename_map[col] = "Saldo"
-            elif re.search(r"no[-_\s]?voucher", col):
-                rename_map[col] = "No Voucher"
             elif re.search(r"^tgl|tanggal|date", col):
                 rename_map[col] = "Tgl"
             elif re.search(r"jurnal[_\s-]?id", col):
                 rename_map[col] = "Jurnal ID"
+            elif col == "nomor" or re.search(r"no[\.\s_-]*voucher", col):
+                # tangkap "Nomor", "No Voucher", "No. Voucher", "no_voucher", dll.
+                rename_map[col] = "No Voucher"
+
         df = df.rename(columns=rename_map)
 
         if "Tgl" in df.columns:
-            # 1) MySQL DATE (YYYY-MM-DD)
             t = pd.to_datetime(df["Tgl"], errors="coerce", format="%Y-%m-%d")
-            # 2) fallback hasil OCR (dd/MM/yyyy atau day-first)
             mask = t.isna()
             if mask.any():
                 t.loc[mask] = pd.to_datetime(df.loc[mask, "Tgl"], errors="coerce", dayfirst=True)
             df["Tgl"] = t.dt.date
 
-
-        # angka → float
-        numeric_cols = ["Debit", "Kredit", "Saldo"]
-        for col in numeric_cols:
+        for col in ["Debit", "Kredit", "Saldo"]:
             if col in df.columns:
                 df[col] = pd.to_numeric(df[col], errors="coerce").fillna(0.0)
 
         return df
+
 
     def greedy_matching(self, journal_df, bank_df, rounding=2):
         results = []
