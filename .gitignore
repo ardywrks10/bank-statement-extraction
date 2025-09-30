@@ -3,18 +3,23 @@ __pycache__/
 *.pyc
 *.pyo
 
+.vscode
+
 # tmp
-tmp/*
-!tmp/.gitkeep
+/data/tmp/*
+!/data/tmp/.gitkeep
 
 # hasil_konversi
-hasil_konversi/*
-!hasil_konversi/.gitkeep
+/data/hasil_konversi/*
+!/data/hasil_konversi/.gitkeep
 
 # bukti_matching
-bukti_matching/*
-!bukti_matching/.gitkeep
+/data/bukti_matching/*
+!/data/bukti_matching/.gitkeep
 
 # banks
 banks/*
 !banks/.gitkeep
+
+# env
+.env
