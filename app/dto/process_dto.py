@@ -35,3 +35,18 @@ class ProcessOut(BaseModel):
     output_excel_bank: str
     output_excel_bb: str
     output_matching: str
+
+class ReMatchOut(BaseModel):
+    status: str
+    bank: str
+    periode_id: str
+    id_perkiraan: str
+    id_department: str
+    transactions: List[TransactionOut]
+    summary: List[SummaryOut]
+    rows_rk: int
+    rows_bb: int
+    rows_matched: int
+    output_rk: str
+    output_bb: str
+    output_matching: str

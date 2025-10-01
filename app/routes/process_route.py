@@ -2,6 +2,7 @@ from fastapi import APIRouter, UploadFile, File, Form, Depends, HTTPException
 from app.services.process_service import ProcessService
 from fastapi.responses import FileResponse
 from app.dto.process_dto import ProcessOut
+from app.dto.process_dto import ReMatchOut
 from app.paths import MATCHING_DIR
 
 router = APIRouter(prefix="/process", tags=["process"])
@@ -25,6 +26,22 @@ async def process_file(
         periode_id=periode_id,
         id_perkiraan=id_perkiraan,
         id_department=id_department,
+    )
+
+@router.post("/rematch", response_model=ReMatchOut)
+def process_match_again(
+    bank_name: str = Form(...),
+    periode_id: str = Form(...),
+    id_perkiraan: str = Form(...),
+    id_department: str = Form(...),
+    service: ProcessService = Depends(ProcessService),
+):
+    return service.rematch(
+        bank_name=bank_name,
+        periode_id=periode_id,
+        id_perkiraan=id_perkiraan,
+        id_department=id_department,
+        save_excel=True,
     )
 
 
