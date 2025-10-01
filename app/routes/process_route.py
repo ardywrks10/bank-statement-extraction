@@ -45,13 +45,10 @@ def process_match_again(
     )
 
 
-@router.get("/download/{bank_name}")
-def download_matching(bank_name: str):
-    """
-    Unduh file bukti matching hasil terakhir.
-    Contoh: GET /process/download/bni  -> data/bukti_matching/bni_matching.xlsx
-    """
-    path = MATCHING_DIR / f"{bank_name}_matching.xlsx"
+@router.get("/download/{bank_name}/{periode_id}")
+def download_matching(bank_name: str, periode_id: str):
+
+    path = MATCHING_DIR / f"{bank_name}_matching_{periode_id}.xlsx"
     if not path.exists():
         raise HTTPException(status_code=404, detail="File not found")
     return FileResponse(
