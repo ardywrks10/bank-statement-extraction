@@ -30,6 +30,7 @@ services:
         ENV: dev
     volumes:
       - ./data:/app/data
+      - ./banks:/app/banks
     
   # ===== PROD =====
   bankocr-prod:
@@ -44,6 +45,7 @@ services:
         ENV: prod
     volumes:
       - ./data:/app/data
+      - ./banks:/app/banks
 
 networks:
   aiso_network:
