@@ -7,7 +7,7 @@ ENV PYTHONDONTWRITEBYTECODE=1 \
     PYTHONUNBUFFERED=1 \
     PIP_NO_CACHE_DIR=1 \
     PORT=8000 \
-    UVICORN_WORKERS=1
+    UVICORN_WORKERS=2
 
 # OS deps
 RUN apt-get update && apt-get install -y --no-install-recommends \
@@ -36,11 +36,11 @@ COPY .env.${APP_ENV} /app/.env
 EXPOSE ${PORT}
 
 # Jalankan dengan uvicorn dulu (lebih mudah debug). Stabil? Silakan ganti ke Gunicorn (lihat komentar di bawah).
-CMD exec uvicorn app.main:app --host 0.0.0.0 --port ${PORT}
+#CMD exec uvicorn app.main:app --host 0.0.0.0 --port ${PORT}
 
 # === Alternatif (setelah stabil), pakai Gunicorn:
-# CMD exec gunicorn app.main:app \
-#   --workers ${UVICORN_WORKERS} \
-#   --worker-class uvicorn.workers.UvicornWorker \
-#   --bind 0.0.0.0:${PORT} \
-#   --timeout 180
+CMD exec gunicorn app.main:app \
+    --workers ${UVICORN_WORKERS} \
+    --worker-class uvicorn.workers.UvicornWorker \
+    --bind 0.0.0.0:${PORT} \
+    --timeout 180
