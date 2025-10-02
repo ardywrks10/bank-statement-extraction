@@ -1,5 +1,8 @@
 FROM python:3.11-slim
 
+ARG ENV=dev
+ENV APP_ENV=${ENV}
+
 ENV PYTHONDONTWRITEBYTECODE=1 \
     PYTHONUNBUFFERED=1 \
     PIP_NO_CACHE_DIR=1 \
@@ -25,6 +28,10 @@ RUN python -m pip install --upgrade pip wheel setuptools && \
 
 # copy source
 COPY . .
+
+# copy env file sesuai profile
+# (default .env.dev, override saat build)
+COPY .env.${APP_ENV} /app/.env
 
 EXPOSE ${PORT}
 

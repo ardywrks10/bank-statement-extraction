@@ -1,0 +1,50 @@
+version: "3.9"
+
+x-bankocr-base: &bankocr-base
+  build:
+    context: .
+    dockerfile: Dockerfile
+    args:
+      ENV: dev
+  image: bankocr:${ENV:-dev}
+  container_name: bankocr-${ENV:-dev}
+  environment:
+    PORT: 8000
+  ports:
+    - "8088:8000"
+  networks:
+    - aiso_network
+  restart: unless-stopped
+
+services:
+  # ===== DEV =====
+  bankocr-dev:
+    <<: *bankocr-base
+    profiles: ["dev"]
+    env_file:
+      - .env.dev
+    build:
+      context: .
+      dockerfile: Dockerfile
+      args:
+        ENV: dev
+    volumes:
+      - ./data:/app/data
+    
+  # ===== PROD =====
+  bankocr-prod:
+    <<: *bankocr-base
+    profiles: ["prod"]
+    env_file:
+      - .env.prod
+    build:
+      context: .
+      dockerfile: Dockerfile
+      args:
+        ENV: prod
+    volumes:
+      - ./data:/app/data
+
+networks:
+  aiso_network:
+    external: true
