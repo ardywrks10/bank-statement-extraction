@@ -3,6 +3,7 @@ from typing import Optional, List
 
 class TransactionOut(BaseModel):
     tanggal_bb: Optional[str] = None
+    id_jurnal: Optional[str] = None
     no_voucher: Optional[str] = None
     debit_bb: Optional[float] = None
     kredit_bb: Optional[float] = None
@@ -12,7 +13,6 @@ class TransactionOut(BaseModel):
     kredit_rk: Optional[float] = None
     saldo_rk: Optional[float] = None
     status: Optional[str] = None
-    id_jurnal: Optional[str] = None
     catatan: Optional[str] = None
 
 class SummaryOut(BaseModel):

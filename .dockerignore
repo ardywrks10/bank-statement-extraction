@@ -1,0 +1,28 @@
+# Python cache
+__pycache__/
+*.pyc
+*.pyo
+
+# VSCode settings
+.vscode
+
+# tmp
+data/tmp/*
+!data/tmp/.gitkeep
+
+# hasil_konversi
+data/hasil_konversi/*
+!data/hasil_konversi/.gitkeep
+
+# bukti_matching
+data/bukti_matching/*
+!data/bukti_matching/.gitkeep
+
+# banks
+banks/*
+!banks/.gitkeep
+
+
+# opsional: Dockerfile build cache
+*.egg-info
+*.log

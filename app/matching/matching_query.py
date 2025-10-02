@@ -147,6 +147,7 @@ class BankJournalMatcher:
                         found = {
                             "Tanggal (BB)" : j_tgl,
                             "No Voucher"   : j_voucher if pd.notna(j_voucher) else "-",
+                            "Jurnal ID"    : j_jid,
                             "Debit (BB)"   : float(j_debit),
                             "Kredit (BB)"  : float(j_kredit),
                             "Saldo (BB)"   : 0.0,
@@ -158,7 +159,6 @@ class BankJournalMatcher:
                             "Kredit (BB) - Debit (RK)" : round(float(j_kredit) - float(b_debet), rounding),
                             "Status"       : "Matched",
                             "Catatan"      : "-",
-                            "Jurnal ID"    : j_jid
                         }
                         matched_bank_idxs.add(b_idx)
                         break
@@ -169,6 +169,7 @@ class BankJournalMatcher:
                 results.append({
                     "Tanggal (BB)" : j_tgl,
                     "No Voucher"   : j_voucher if pd.notna(j_voucher) else "-",
+                    "Jurnal ID"    : j_jid,
                     "Debit (BB)"   : float(j_debit),
                     "Kredit (BB)"  : float(j_kredit),
                     "Saldo (BB)"   : 0.0,
@@ -180,7 +181,6 @@ class BankJournalMatcher:
                     "Kredit (BB) - Debit (RK)" : round(float(j_kredit), rounding),
                     "Status"       : "Unmatched",
                     "Catatan"      : "-",
-                    "Jurnal ID"    : j_jid
                 })
 
         for b_idx, b_row in bank_n1.iterrows():
@@ -190,6 +190,7 @@ class BankJournalMatcher:
                 results.append({
                     "Tanggal (BB)"      : "-",
                     "No Voucher"        : "-",
+                    "Jurnal ID"         : None,
                     "Debit (BB)"        : 0.0,
                     "Kredit (BB)"       : 0.0,
                     "Saldo (BB)"        : 0.0,
@@ -201,7 +202,6 @@ class BankJournalMatcher:
                     "Kredit (BB) - Debit (RK)" : round(0 - b_debet, rounding),
                     "Status"            : "Unmatched",
                     "Catatan"           : "-",
-                    "Jurnal ID"         : None
                 })
 
         # ambil saldo awal dari baris 0 (diasumsikan opening balance)
@@ -238,6 +238,9 @@ class BankJournalMatcher:
             akhir_cols = ["Status"]
             cols2 = [c for c in df_results.columns if c not in akhir_cols] + [c for c in akhir_cols if c in df_results.columns]
             df_results = df_results[cols2]
+
+        df_results = self._force_order(df_results)
+
         return df_results, saldo_awal_bb, saldo_awal_b
 
     def unmatched_links(self, df, max_group = 4):
@@ -341,7 +344,9 @@ class BankJournalMatcher:
             df["Saldo (RK)"] = saldo_list
 
         opening_row = {
-            "Tanggal (BB)": opening_date_bb, "No Voucher": "-",
+            "Tanggal (BB)": opening_date_bb, 
+            "No Voucher": "-",
+            "Jurnal ID": "-",
             "Debit (BB)": 0.0, "Kredit (BB)": 0.0, "Saldo (BB)": saldo_awal_bb,
             "Tanggal (RK)": opening_date_rk, "Debit (RK)": 0.0, "Kredit (RK)": 0.0, "Saldo (RK)": saldo_awal_b,
             "Debit (BB) - Kredit (RK)" : "-",
@@ -359,7 +364,9 @@ class BankJournalMatcher:
         saldo_b_akhir = round(saldo_awal_b + total_kredit_b - total_debit_b, rounding)
 
         closing_row = {
-            "Tanggal (BB)": closing_date_bb, "No Voucher": "-",
+            "Tanggal (BB)": closing_date_bb, 
+            "No Voucher": "-",
+            "Jurnal ID": "-",
             "Debit (BB)": total_debit_bb, "Kredit (BB)": total_kredit_bb, "Saldo (BB)": saldo_bb_akhir,
             "Tanggal (RK)": closing_date_rk, "Debit (RK)": total_debit_b, "Kredit (RK)": total_kredit_b, "Saldo (RK)": saldo_b_akhir,
             "Debit (BB) - Kredit (RK)" : round(total_debit_bb - total_kredit_b, rounding),
@@ -376,6 +383,9 @@ class BankJournalMatcher:
              "Buku Besar (BB)": saldo_bb_akhir, "Rekening Koran (RK)": saldo_b_akhir,
              "Selisih": round(saldo_bb_akhir - saldo_b_akhir, rounding)}
         ])
+
+        df = self._force_order(df)
+
         return df, df_summary
 
     def matching(self):
@@ -392,9 +402,36 @@ class BankJournalMatcher:
         reconciler = Reconciler(abs_tol=1.0, rel_tol=1e-4, max_group=4)
         self.matched_df = reconciler.predict(self.matched_df)
 
+        self.matched_df = self._force_order(self.matched_df)
+
         if self.save_excel and self.output_path:
             with pd.ExcelWriter(self.output_path, engine="openpyxl") as writer:
                 self.matched_df.to_excel(writer, sheet_name="Transaksi", index=False)
                 self.df_summary.to_excel(writer, sheet_name="Summary", index=False)
 
         return self.matched_df
+
+
+    def _force_order(self, df: pd.DataFrame) -> pd.DataFrame:
+        DESIRED = [
+            "Tanggal (BB)",
+            "Jurnal ID",           # ← di sini, sebelum No Voucher
+            "No Voucher",
+            "Debit (BB)",
+            "Kredit (BB)",
+            "Saldo (BB)",
+            "Tanggal (RK)",
+            "Debit (RK)",
+            "Kredit (RK)",
+            "Saldo (RK)",
+            "Debit (BB) - Kredit (RK)",
+            "Kredit (BB) - Debit (RK)",
+            "Status",
+            "ID",
+            "Catatan",
+        ]
+        if df is None or df.empty:
+            return df
+        ordered = [c for c in DESIRED if c in df.columns]
+        tail = [c for c in df.columns if c not in ordered]
+        return df[ordered + tail]

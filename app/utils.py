@@ -30,10 +30,10 @@ def _snake(s: str) -> str:
     return s
 
 TRANSACTION_KEY_ORDER = [
-    "tanggal_bb","no_voucher","debit_bb","kredit_bb","saldo_bb",
+    "tanggal_bb","no_voucher","id_jurnal","debit_bb","kredit_bb","saldo_bb",
     "tanggal_rk","debit_rk","kredit_rk","saldo_rk",
     "debit_bb_kredit_rk","kredit_bb_debit_rk",
-    "status","id_jurnal","catatan"
+    "status","catatan"
 ]
 
 TRANSACTION_COL_MAP = {

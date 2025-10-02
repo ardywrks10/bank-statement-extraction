@@ -22,4 +22,5 @@ banks/*
 !banks/.gitkeep
 
 # env
-.env
+.env.dev
+.env.prod
