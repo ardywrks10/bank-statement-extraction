@@ -238,6 +238,29 @@ class BankJournalMatcher:
             akhir_cols = ["Status"]
             cols2 = [c for c in df_results.columns if c not in akhir_cols] + [c for c in akhir_cols if c in df_results.columns]
             df_results = df_results[cols2]
+        
+        # --- FORCE COLUMN ORDER (Excel & downstream) ---
+        DESIRED_ORDER = [
+            "Tanggal (BB)",
+            "Jurnal ID",
+            "No Voucher",
+            "Debit (BB)",
+            "Kredit (BB)",
+            "Saldo (BB)",
+            "Tanggal (RK)",
+            "Debit (RK)",
+            "Kredit (RK)",
+            "Saldo (RK)",
+            "Debit (BB) - Kredit (RK)",
+            "Kredit (BB) - Debit (RK)",
+            "Status",
+            "ID",
+            "Catatan",
+        ]
+        ordered_cols = [c for c in DESIRED_ORDER if c in df_results.columns] + \
+                       [c for c in df_results.columns if c not in DESIRED_ORDER]
+        df_results = df_results[ordered_cols]
+
         return df_results, saldo_awal_bb, saldo_awal_b
 
     def unmatched_links(self, df, max_group = 4):
