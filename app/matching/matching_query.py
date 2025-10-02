@@ -147,6 +147,7 @@ class BankJournalMatcher:
                         found = {
                             "Tanggal (BB)" : j_tgl,
                             "No Voucher"   : j_voucher if pd.notna(j_voucher) else "-",
+                            "Jurnal ID"    : j_jid,
                             "Debit (BB)"   : float(j_debit),
                             "Kredit (BB)"  : float(j_kredit),
                             "Saldo (BB)"   : 0.0,
@@ -158,7 +159,6 @@ class BankJournalMatcher:
                             "Kredit (BB) - Debit (RK)" : round(float(j_kredit) - float(b_debet), rounding),
                             "Status"       : "Matched",
                             "Catatan"      : "-",
-                            "Jurnal ID"    : j_jid
                         }
                         matched_bank_idxs.add(b_idx)
                         break
@@ -169,6 +169,7 @@ class BankJournalMatcher:
                 results.append({
                     "Tanggal (BB)" : j_tgl,
                     "No Voucher"   : j_voucher if pd.notna(j_voucher) else "-",
+                    "Jurnal ID"    : j_jid,
                     "Debit (BB)"   : float(j_debit),
                     "Kredit (BB)"  : float(j_kredit),
                     "Saldo (BB)"   : 0.0,
@@ -180,7 +181,6 @@ class BankJournalMatcher:
                     "Kredit (BB) - Debit (RK)" : round(float(j_kredit), rounding),
                     "Status"       : "Unmatched",
                     "Catatan"      : "-",
-                    "Jurnal ID"    : j_jid
                 })
 
         for b_idx, b_row in bank_n1.iterrows():
@@ -190,6 +190,7 @@ class BankJournalMatcher:
                 results.append({
                     "Tanggal (BB)"      : "-",
                     "No Voucher"        : "-",
+                    "Jurnal ID"         : None,
                     "Debit (BB)"        : 0.0,
                     "Kredit (BB)"       : 0.0,
                     "Saldo (BB)"        : 0.0,
@@ -201,7 +202,6 @@ class BankJournalMatcher:
                     "Kredit (BB) - Debit (RK)" : round(0 - b_debet, rounding),
                     "Status"            : "Unmatched",
                     "Catatan"           : "-",
-                    "Jurnal ID"         : None
                 })
 
         # ambil saldo awal dari baris 0 (diasumsikan opening balance)

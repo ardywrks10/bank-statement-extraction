@@ -7,7 +7,7 @@ ENV PYTHONDONTWRITEBYTECODE=1 \
     PYTHONUNBUFFERED=1 \
     PIP_NO_CACHE_DIR=1 \
     PORT=8000 \
-    UVICORN_WORKERS=2
+    UVICORN_WORKERS=8
 
 # OS deps
 RUN apt-get update && apt-get install -y --no-install-recommends \
