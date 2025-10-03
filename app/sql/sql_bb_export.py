@@ -55,12 +55,17 @@ ORDER BY
 
 def _prev_periode_id(periode_id: str) -> str:
     s = str(periode_id)
-    if len(s) != 9 or not s.startswith("1"):
-        raise ValueError("Format periode_id invalid. Contoh valid: 120240601")
-    year = int(s[1:5]); month = int(s[5:7])
-    if month == 1: year -= 1; month = 12
-    else: month -= 1
+    if len(s) not in (9, 10) or not s.startswith("1"):
+        raise ValueError("Format periode_id invalid. Contoh valid: 120240601 atau 1202406001")
+    year = int(s[1:5])
+    month = int(s[5:7])
+    if month == 1:
+        year -= 1
+        month = 12
+    else:
+        month -= 1
     return f"1{year:04d}{month:02d}01"
+
 
 def _jsonable(row: Optional[Dict[str, Any]]) -> Optional[Dict[str, Any]]:
     if row is None:
