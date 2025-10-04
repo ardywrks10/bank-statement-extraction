@@ -425,7 +425,7 @@ class BankJournalMatcher:
             "Kredit (BB)",
             "Saldo (BB)",
             "Tanggal (RK)",
-            "Keterangan (RK)"
+            "Keterangan (RK)",
             "Debit (RK)",
             "Kredit (RK)",
             "Saldo (RK)",
