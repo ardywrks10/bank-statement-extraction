@@ -13,12 +13,6 @@ class BankJournalMatcher:
                  journal_df: Optional[pd.DataFrame] = None,
                  bank_df: Optional[pd.DataFrame] = None,
                  save_excel: bool = False):
-        """
-        Versi ini mendukung:
-        - Input via path Excel (compat lama), ATAU
-        - Input via DataFrame langsung (mode SQL).
-        - Penulisan Excel bisa dimatikan (save_excel=False).
-        """
         self.journal_path  = journal_path
         self.bank_path     = bank_path
         self.output_path   = output_path
@@ -86,7 +80,6 @@ class BankJournalMatcher:
             elif re.search(r"jurnal[_\s-]?id", col):
                 rename_map[col] = "Jurnal ID"
             elif col == "nomor" or re.search(r"no[\.\s_-]*voucher", col):
-                # tangkap "Nomor", "No Voucher", "No. Voucher", "no_voucher", dll.
                 rename_map[col] = "No Voucher"
 
         df = df.rename(columns=rename_map)
@@ -101,9 +94,7 @@ class BankJournalMatcher:
         for col in ["Debit", "Kredit", "Saldo"]:
             if col in df.columns:
                 df[col] = pd.to_numeric(df[col], errors="coerce").fillna(0.0)
-
         return df
-
 
     def greedy_matching(self, journal_df, bank_df, rounding=2):
         results = []
@@ -131,7 +122,7 @@ class BankJournalMatcher:
                     continue
                 b_tgl    = b_row.get("Tgl", None)
                 b_debet  = b_row.get("Debit", 0.0)
-                b_kredit = b_row.get("Kredit", 0.0)
+                b_kredit = b_row.get("Kredit", 0.0) 
 
                 try:
                     if j_tgl and b_tgl:
@@ -171,7 +162,6 @@ class BankJournalMatcher:
                     "No Voucher"   : j_voucher if pd.notna(j_voucher) else "-",
                     "Jurnal ID"    : j_jid,
                     "Debit (BB)"   : float(j_debit),
-                    "Kredit (BB)"  : float(j_kredit),
                     "Saldo (BB)"   : 0.0,
                     "Tanggal (RK)" : "-",
                     "Debit (RK)"   : 0.0,
@@ -179,7 +169,7 @@ class BankJournalMatcher:
                     "Saldo (RK)"   : 0.0,
                     "Debit (BB) - Kredit (RK)" : round(float(j_debit), rounding),
                     "Kredit (BB) - Debit (RK)" : round(float(j_kredit), rounding),
-                    "Status"       : "Unmatched",
+                    "Status"       : "Not Matched",
                     "Catatan"      : "-",
                 })
 
@@ -200,16 +190,14 @@ class BankJournalMatcher:
                     "Saldo (RK)"        : 0.0,
                     "Debit (BB) - Kredit (RK)" : round(0 - b_kredit, rounding),
                     "Kredit (BB) - Debit (RK)" : round(0 - b_debet, rounding),
-                    "Status"            : "Unmatched",
+                    "Status"            : "Not Matched",
                     "Catatan"           : "-",
                 })
 
-        # ambil saldo awal dari baris 0 (diasumsikan opening balance)
         saldo_awal_bb = round(float(self.journal_df.iloc[0]["Saldo"]), rounding) if ("Saldo" in self.journal_df.columns and len(self.journal_df)>0) else 0.0
         saldo_awal_b  = round(float(self.bank_df.iloc[0]["Saldo"]), rounding) if ("Saldo" in self.bank_df.columns and len(self.bank_df)>0) else 0.0
-
         df_results = pd.DataFrame(results)
-        # sort by tanggal referensi
+        
         for c in ["Tanggal (BB)", "Tanggal (RK)"]:
             if c not in df_results.columns:
                 continue
@@ -246,7 +234,7 @@ class BankJournalMatcher:
     def unmatched_links(self, df, max_group = 4):
         df = df.copy()
         df["ID"] = '-'
-        unmatched = df[df["Status"] == "Unmatched"]
+        unmatched = df[df["Status"] == "Not Matched"]
         group_counter = 1
         used_idx  = set()
 
@@ -401,7 +389,6 @@ class BankJournalMatcher:
 
         reconciler = Reconciler(abs_tol=1.0, rel_tol=1e-4, max_group=4)
         self.matched_df = reconciler.predict(self.matched_df)
-
         self.matched_df = self._force_order(self.matched_df)
 
         if self.save_excel and self.output_path:

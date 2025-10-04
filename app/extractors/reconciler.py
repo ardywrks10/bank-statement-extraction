@@ -55,12 +55,12 @@ class Reconciler:
         closing_cr_db = df["Kredit (BB) - Debit (RK)"].iloc[-1]
 
         if closing_db_cr == closing_cr_db:
-            mask = (df["Status"] == "Unmatched") & ((df["ID"] == "-") | (df["ID"].isna()))
+            mask = (df["Status"] == "Not Matched") & ((df["ID"] == "-") | (df["ID"].isna()))
             df.loc[mask, "ID"] = f"G{counter}"
             return df
 
         selisih = abs(closing_db_cr - closing_cr_db)
-        candidates = df[(df["Status"] == "Unmatched") & ((df["ID"] == "-") | (df["ID"].isna()))]
+        candidates = df[(df["Status"] == "Not Matched") & ((df["ID"] == "-") | (df["ID"].isna()))]
         candidate_idx = candidates.index.tolist()
 
         found = False
