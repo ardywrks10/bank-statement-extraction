@@ -79,8 +79,6 @@ class BankJournalMatcher:
                 rename_map[col] = "Tgl"
             elif re.search(r"jurnal[_\s-]?id", col):
                 rename_map[col] = "Jurnal ID"
-            elif re.search(r"(keterangan|description|deskripsi)", col):
-                rename_map[col] = "Keterangan"
             elif col == "nomor" or re.search(r"no[\.\s_-]*voucher", col):
                 rename_map[col] = "No Voucher"
 
@@ -96,10 +94,6 @@ class BankJournalMatcher:
         for col in ["Debit", "Kredit", "Saldo"]:
             if col in df.columns:
                 df[col] = pd.to_numeric(df[col], errors="coerce").fillna(0.0)
-
-        if "Keterangan" in df.columns:
-            df["Keterangan"] = df["Keterangan"].astype(str).str.upper()
-
         return df
 
     def greedy_matching(self, journal_df, bank_df, rounding=2):
@@ -121,7 +115,6 @@ class BankJournalMatcher:
             j_kredit  = j_row.get("Kredit", 0.0)
             j_voucher = j_row.get("No Voucher", "-")
             j_jid     = j_row.get("Jurnal ID", None)
-            j_desc    = j_row.get("Keterangan", None) #1
 
             found = None
             for b_idx, b_row in bank_n1.iterrows():
@@ -130,8 +123,6 @@ class BankJournalMatcher:
                 b_tgl    = b_row.get("Tgl", None)
                 b_debet  = b_row.get("Debit", 0.0)
                 b_kredit = b_row.get("Kredit", 0.0) 
-                b_desc   = b_row.get("Keterangan", None) #2
-                
 
                 try:
                     if j_tgl and b_tgl:
@@ -148,12 +139,10 @@ class BankJournalMatcher:
                             "Tanggal (BB)" : j_tgl,
                             "No Voucher"   : j_voucher if pd.notna(j_voucher) else "-",
                             "Jurnal ID"    : j_jid,
-                            "Keterangan (BB)"   : j_desc,
                             "Debit (BB)"   : float(j_debit),
                             "Kredit (BB)"  : float(j_kredit),
                             "Saldo (BB)"   : 0.0,
                             "Tanggal (RK)" : b_tgl,
-                            "Keterangan (RK)"   : b_desc,
                             "Debit (RK)"   : float(b_debet),
                             "Kredit (RK)"  : float(b_kredit),
                             "Saldo (RK)"   : 0.0,
@@ -172,12 +161,9 @@ class BankJournalMatcher:
                     "Tanggal (BB)" : j_tgl,
                     "No Voucher"   : j_voucher if pd.notna(j_voucher) else "-",
                     "Jurnal ID"    : j_jid,
-                    "Keterangan (BB)" : j_desc,
                     "Debit (BB)"   : float(j_debit),
-                    "Kredit (BB)"  : float(j_kredit),
                     "Saldo (BB)"   : 0.0,
                     "Tanggal (RK)" : "-",
-                    "Keterangan (RK)"   : "-",
                     "Debit (RK)"   : 0.0,
                     "Kredit (RK)"  : 0.0,
                     "Saldo (RK)"   : 0.0,
@@ -195,12 +181,10 @@ class BankJournalMatcher:
                     "Tanggal (BB)"      : "-",
                     "No Voucher"        : "-",
                     "Jurnal ID"         : None,
-                    "Keterangan (BB)"   : "-",
                     "Debit (BB)"        : 0.0,
                     "Kredit (BB)"       : 0.0,
                     "Saldo (BB)"        : 0.0,
                     "Tanggal (RK)"      : b_row.get("Tgl", None),
-                    "Keterangan (RK)"   : b_desc,
                     "Debit (RK)"        : b_debet,
                     "Kredit (RK)"       : b_kredit,
                     "Saldo (RK)"        : 0.0,
@@ -350,9 +334,9 @@ class BankJournalMatcher:
         opening_row = {
             "Tanggal (BB)": opening_date_bb, 
             "No Voucher": "-",
-            "Jurnal ID": "-", "Keterangan (BB)": "-",
+            "Jurnal ID": "-",
             "Debit (BB)": 0.0, "Kredit (BB)": 0.0, "Saldo (BB)": saldo_awal_bb,
-            "Tanggal (RK)": opening_date_rk, "Keterangan (RK)": "-", "Debit (RK)": 0.0, "Kredit (RK)": 0.0, "Saldo (RK)": saldo_awal_b,
+            "Tanggal (RK)": opening_date_rk, "Debit (RK)": 0.0, "Kredit (RK)": 0.0, "Saldo (RK)": saldo_awal_b,
             "Debit (BB) - Kredit (RK)" : "-",
             "Kredit (BB) - Debit (RK)" : "-",
             "Status": "Opening Balance", "ID": "-", "Catatan": "-"
@@ -370,9 +354,9 @@ class BankJournalMatcher:
         closing_row = {
             "Tanggal (BB)": closing_date_bb, 
             "No Voucher": "-",
-            "Jurnal ID": "-", "Keterangan (BB)": "-",
+            "Jurnal ID": "-",
             "Debit (BB)": total_debit_bb, "Kredit (BB)": total_kredit_bb, "Saldo (BB)": saldo_bb_akhir,
-            "Tanggal (RK)": closing_date_rk, "Keterangan (RK)": "-", "Debit (RK)": total_debit_b, "Kredit (RK)": total_kredit_b, "Saldo (RK)": saldo_b_akhir,
+            "Tanggal (RK)": closing_date_rk, "Debit (RK)": total_debit_b, "Kredit (RK)": total_kredit_b, "Saldo (RK)": saldo_b_akhir,
             "Debit (BB) - Kredit (RK)" : round(total_debit_bb - total_kredit_b, rounding),
             "Kredit (BB) - Debit (RK)" : round(total_kredit_bb - total_debit_b, rounding),
             "Status": "Closing Balance", "ID": "-", "Catatan": "-"
@@ -420,12 +404,10 @@ class BankJournalMatcher:
             "Tanggal (BB)",
             "Jurnal ID",           # ← di sini, sebelum No Voucher
             "No Voucher",
-            "Keterangan (BB)",
             "Debit (BB)",
             "Kredit (BB)",
             "Saldo (BB)",
             "Tanggal (RK)",
-            "Keterangan (RK)",
             "Debit (RK)",
             "Kredit (RK)",
             "Saldo (RK)",
