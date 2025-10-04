@@ -13,12 +13,6 @@ class BankJournalMatcher:
                  journal_df: Optional[pd.DataFrame] = None,
                  bank_df: Optional[pd.DataFrame] = None,
                  save_excel: bool = False):
-        """
-        Versi ini mendukung:
-        - Input via path Excel (compat lama), ATAU
-        - Input via DataFrame langsung (mode SQL).
-        - Penulisan Excel bisa dimatikan (save_excel=False).
-        """
         self.journal_path  = journal_path
         self.bank_path     = bank_path
         self.output_path   = output_path
@@ -85,8 +79,9 @@ class BankJournalMatcher:
                 rename_map[col] = "Tgl"
             elif re.search(r"jurnal[_\s-]?id", col):
                 rename_map[col] = "Jurnal ID"
+            elif re.search(r"(keterangan|description|deskripsi)", col):
+                rename_map[col] = "Keterangan"
             elif col == "nomor" or re.search(r"no[\.\s_-]*voucher", col):
-                # tangkap "Nomor", "No Voucher", "No. Voucher", "no_voucher", dll.
                 rename_map[col] = "No Voucher"
 
         df = df.rename(columns=rename_map)
@@ -102,8 +97,10 @@ class BankJournalMatcher:
             if col in df.columns:
                 df[col] = pd.to_numeric(df[col], errors="coerce").fillna(0.0)
 
-        return df
+        if "Keterangan" in df.columns:
+            df["Keterangan"] = df["Keterangan"].astype(str).str.upper()
 
+        return df
 
     def greedy_matching(self, journal_df, bank_df, rounding=2):
         results = []
@@ -124,6 +121,7 @@ class BankJournalMatcher:
             j_kredit  = j_row.get("Kredit", 0.0)
             j_voucher = j_row.get("No Voucher", "-")
             j_jid     = j_row.get("Jurnal ID", None)
+            j_desc    = j_row.get("Keterangan", None) #1
 
             found = None
             for b_idx, b_row in bank_n1.iterrows():
@@ -131,7 +129,9 @@ class BankJournalMatcher:
                     continue
                 b_tgl    = b_row.get("Tgl", None)
                 b_debet  = b_row.get("Debit", 0.0)
-                b_kredit = b_row.get("Kredit", 0.0)
+                b_kredit = b_row.get("Kredit", 0.0) 
+                b_desc   = b_row.get("Keterangan", None) #2
+                
 
                 try:
                     if j_tgl and b_tgl:
@@ -148,10 +148,12 @@ class BankJournalMatcher:
                             "Tanggal (BB)" : j_tgl,
                             "No Voucher"   : j_voucher if pd.notna(j_voucher) else "-",
                             "Jurnal ID"    : j_jid,
+                            "Keterangan (BB)"   : j_desc,
                             "Debit (BB)"   : float(j_debit),
                             "Kredit (BB)"  : float(j_kredit),
                             "Saldo (BB)"   : 0.0,
                             "Tanggal (RK)" : b_tgl,
+                            "Keterangan (RK)"   : b_desc,
                             "Debit (RK)"   : float(b_debet),
                             "Kredit (RK)"  : float(b_kredit),
                             "Saldo (RK)"   : 0.0,
@@ -170,16 +172,18 @@ class BankJournalMatcher:
                     "Tanggal (BB)" : j_tgl,
                     "No Voucher"   : j_voucher if pd.notna(j_voucher) else "-",
                     "Jurnal ID"    : j_jid,
+                    "Keterangan (BB)" : j_desc,
                     "Debit (BB)"   : float(j_debit),
                     "Kredit (BB)"  : float(j_kredit),
                     "Saldo (BB)"   : 0.0,
                     "Tanggal (RK)" : "-",
+                    "Keterangan (RK)"   : "-",
                     "Debit (RK)"   : 0.0,
                     "Kredit (RK)"  : 0.0,
                     "Saldo (RK)"   : 0.0,
                     "Debit (BB) - Kredit (RK)" : round(float(j_debit), rounding),
                     "Kredit (BB) - Debit (RK)" : round(float(j_kredit), rounding),
-                    "Status"       : "Unmatched",
+                    "Status"       : "Not Matched",
                     "Catatan"      : "-",
                 })
 
@@ -191,25 +195,25 @@ class BankJournalMatcher:
                     "Tanggal (BB)"      : "-",
                     "No Voucher"        : "-",
                     "Jurnal ID"         : None,
+                    "Keterangan (BB)"   : "-",
                     "Debit (BB)"        : 0.0,
                     "Kredit (BB)"       : 0.0,
                     "Saldo (BB)"        : 0.0,
                     "Tanggal (RK)"      : b_row.get("Tgl", None),
+                    "Keterangan (RK)"   : b_desc,
                     "Debit (RK)"        : b_debet,
                     "Kredit (RK)"       : b_kredit,
                     "Saldo (RK)"        : 0.0,
                     "Debit (BB) - Kredit (RK)" : round(0 - b_kredit, rounding),
                     "Kredit (BB) - Debit (RK)" : round(0 - b_debet, rounding),
-                    "Status"            : "Unmatched",
+                    "Status"            : "Not Matched",
                     "Catatan"           : "-",
                 })
 
-        # ambil saldo awal dari baris 0 (diasumsikan opening balance)
         saldo_awal_bb = round(float(self.journal_df.iloc[0]["Saldo"]), rounding) if ("Saldo" in self.journal_df.columns and len(self.journal_df)>0) else 0.0
         saldo_awal_b  = round(float(self.bank_df.iloc[0]["Saldo"]), rounding) if ("Saldo" in self.bank_df.columns and len(self.bank_df)>0) else 0.0
-
         df_results = pd.DataFrame(results)
-        # sort by tanggal referensi
+        
         for c in ["Tanggal (BB)", "Tanggal (RK)"]:
             if c not in df_results.columns:
                 continue
@@ -246,7 +250,7 @@ class BankJournalMatcher:
     def unmatched_links(self, df, max_group = 4):
         df = df.copy()
         df["ID"] = '-'
-        unmatched = df[df["Status"] == "Unmatched"]
+        unmatched = df[df["Status"] == "Not Matched"]
         group_counter = 1
         used_idx  = set()
 
@@ -346,9 +350,9 @@ class BankJournalMatcher:
         opening_row = {
             "Tanggal (BB)": opening_date_bb, 
             "No Voucher": "-",
-            "Jurnal ID": "-",
+            "Jurnal ID": "-", "Keterangan (BB)": "-",
             "Debit (BB)": 0.0, "Kredit (BB)": 0.0, "Saldo (BB)": saldo_awal_bb,
-            "Tanggal (RK)": opening_date_rk, "Debit (RK)": 0.0, "Kredit (RK)": 0.0, "Saldo (RK)": saldo_awal_b,
+            "Tanggal (RK)": opening_date_rk, "Keterangan (RK)": "-", "Debit (RK)": 0.0, "Kredit (RK)": 0.0, "Saldo (RK)": saldo_awal_b,
             "Debit (BB) - Kredit (RK)" : "-",
             "Kredit (BB) - Debit (RK)" : "-",
             "Status": "Opening Balance", "ID": "-", "Catatan": "-"
@@ -366,9 +370,9 @@ class BankJournalMatcher:
         closing_row = {
             "Tanggal (BB)": closing_date_bb, 
             "No Voucher": "-",
-            "Jurnal ID": "-",
+            "Jurnal ID": "-", "Keterangan (BB)": "-",
             "Debit (BB)": total_debit_bb, "Kredit (BB)": total_kredit_bb, "Saldo (BB)": saldo_bb_akhir,
-            "Tanggal (RK)": closing_date_rk, "Debit (RK)": total_debit_b, "Kredit (RK)": total_kredit_b, "Saldo (RK)": saldo_b_akhir,
+            "Tanggal (RK)": closing_date_rk, "Keterangan (RK)": "-", "Debit (RK)": total_debit_b, "Kredit (RK)": total_kredit_b, "Saldo (RK)": saldo_b_akhir,
             "Debit (BB) - Kredit (RK)" : round(total_debit_bb - total_kredit_b, rounding),
             "Kredit (BB) - Debit (RK)" : round(total_kredit_bb - total_debit_b, rounding),
             "Status": "Closing Balance", "ID": "-", "Catatan": "-"
@@ -401,7 +405,6 @@ class BankJournalMatcher:
 
         reconciler = Reconciler(abs_tol=1.0, rel_tol=1e-4, max_group=4)
         self.matched_df = reconciler.predict(self.matched_df)
-
         self.matched_df = self._force_order(self.matched_df)
 
         if self.save_excel and self.output_path:
@@ -417,10 +420,12 @@ class BankJournalMatcher:
             "Tanggal (BB)",
             "Jurnal ID",           # ← di sini, sebelum No Voucher
             "No Voucher",
+            "Keterangan (BB)",
             "Debit (BB)",
             "Kredit (BB)",
             "Saldo (BB)",
             "Tanggal (RK)",
+            "Keterangan (RK)"
             "Debit (RK)",
             "Kredit (RK)",
             "Saldo (RK)",
